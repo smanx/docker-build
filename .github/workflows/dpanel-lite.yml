@@ -22,7 +22,7 @@ jobs:
       - name: Build Dpanel
         run: |
           cd dpanel
-          # GOOS=linux GOARCH=amd64 go build -o dpanel-lite-amd64
+          GOOS=linux GOARCH=amd64 go build -o dpanel-lite-amd64
           # GOOS=linux GOARCH=arm64 go build -o dpanel-lite-arm64
           # GOOS=linux GOARCH=386 go build -o dpanel-lite-386
           # GOOS=linux GOARCH=ppc64le go build -o dpanel-lite-ppc64le
@@ -50,9 +50,9 @@ jobs:
           # sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-ppc64le /app/server/dpanel#g' Dockerfile-lite-ppc64le
           # sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-ppc64le
           
-          cp Dockerfile-lite Dockerfile-lite-s390x
-          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-lite-s390x /app/server/dpanel#g' Dockerfile-lite-s390x
-          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-s390x
+          # cp Dockerfile-lite Dockerfile-lite-s390x
+          # sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-lite-s390x /app/server/dpanel#g' Dockerfile-lite-s390x
+          # sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-s390x
 
           # cp Dockerfile-lite Dockerfile-lite-riscv64
           # sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-lite-riscv64 /app/server/dpanel#g' Dockerfile-lite-riscv64
@@ -72,13 +72,9 @@ jobs:
         run: |
           cd dpanel
           ls
-          docker buildx build --platform linux/s390x \
-            --file Dockerfile-lite-s390x \
-            -t $IMAGE_NAME:lite-s390x . --push
-
-      #     docker buildx build --platform linux/amd64 \
-      #       --file Dockerfile-lite-amd64 \
-      #       -t $IMAGE_NAME:lite-amd64 . --push
+          docker buildx build --platform linux/amd64 \
+            --file Dockerfile-lite-amd64 \
+            -t $IMAGE_NAME:lite-amd64 . --push
 
       #     docker buildx build --platform linux/arm64 \
       #       --file Dockerfile-lite-arm64 \
