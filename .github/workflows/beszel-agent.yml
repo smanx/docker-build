@@ -1,4 +1,4 @@
-name: Beszel-agent build
+name: Beszel build
 on:
   workflow_dispatch:
   schedule:
@@ -17,7 +17,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Pull beszel-agent code
+      - name: Pull beszel code
         run: |
           git clone https://github.com/henrygd/beszel.git beszel
 
