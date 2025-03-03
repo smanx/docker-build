@@ -26,6 +26,7 @@ jobs:
           GOOS=linux GOARCH=386 go build -o dpanel-386
           GOOS=linux GOARCH=ppc64le go build -o dpanel-ppc64le
           GOOS=linux GOARCH=s390x go build -o dpanel-s390x
+          GOOS=linux GOARCH=riscv64 go build -o dpanel-riscv64
           ls
 
       - name: Copy Dockerfile
@@ -52,6 +53,10 @@ jobs:
           sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-s390x /app/server/dpanel#g' Dockerfile-lite-s390x
           sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-s390x
 
+          cp Dockerfile-lite Dockerfile-lite-riscv64
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-riscv64 /app/server/dpanel#g' Dockerfile-lite-riscv64
+          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-riscv64
+
       # 设置Docker构建环境
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
@@ -66,25 +71,30 @@ jobs:
           cd dpanel
           docker buildx build --platform linux/amd64 \
             --file Dockerfile-lite-amd64 \
-            -t $IMAGE_NAME:amd64-${{ env.DATE_TAG }} \
+            # -t $IMAGE_NAME:amd64-${{ env.DATE_TAG }} \
             -t $IMAGE_NAME:amd64 . --push
 
           docker buildx build --platform linux/arm64 \
             --file Dockerfile-lite-arm64 \
-            -t $IMAGE_NAME:arm64-${{ env.DATE_TAG }} \
+            # -t $IMAGE_NAME:arm64-${{ env.DATE_TAG }} \
             -t $IMAGE_NAME:arm64 . --push
 
           docker buildx build --platform linux/386 \
             --file Dockerfile-lite-386 \
-            -t $IMAGE_NAME:386-${{ env.DATE_TAG }} \
+            # -t $IMAGE_NAME:386-${{ env.DATE_TAG }} \
             -t $IMAGE_NAME:386 . --push
 
           docker buildx build --platform linux/ppc64le \
             --file Dockerfile-lite-ppc64le \
-            -t $IMAGE_NAME:ppc64le-${{ env.DATE_TAG }} \
+            # -t $IMAGE_NAME:ppc64le-${{ env.DATE_TAG }} \
             -t $IMAGE_NAME:ppc64le . --push
 
           docker buildx build --platform linux/s390x \
             --file Dockerfile-lite-s390x \
-            -t $IMAGE_NAME:s390x-${{ env.DATE_TAG }} \
+            # -t $IMAGE_NAME:s390x-${{ env.DATE_TAG }} \
             -t $IMAGE_NAME:s390x . --push
+
+          docker buildx build --platform linux/riscv64 \
+            --file Dockerfile-lite-riscv64 \
+            # -t $IMAGE_NAME:riscv64-${{ env.DATE_TAG }} \
+            -t $IMAGE_NAME:riscv64 . --push
