@@ -13,7 +13,7 @@ jobs:
 
       - name: Pull Dpanel code
         run: |
-          git clone git@github.com:donknap/dpanel.git dpanel
+          git clone https://github.com/donknap/dpanel.git dpanel
           
       - name: Print config.yaml
         run: cat dpanel/config.yaml
