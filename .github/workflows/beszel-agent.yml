@@ -27,7 +27,7 @@ jobs:
       - name: Login to DockerHub
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
-              # 构建Docker镜像（支持多平台）并推送到DockerHub，同时打上日期标签
+      # 构建Docker镜像（支持多平台）并推送到DockerHub，同时打上日期标签
       - name: Build and push Docker image with tags
         run: |
           cd beszel/beszel
@@ -35,9 +35,27 @@ jobs:
             --file dockerfile_Agent \
             -t $IMAGE_NAME . --push
 
+
+      # 打包WEB
+      - name: Build and push Docker image with tags
+        run: |
+          pwd
+          cd beszel/beszel/site/src
+          pwd
+          npm i
+          npm run build
+
+      # 构建Docker镜像（支持多平台）并推送到DockerHub，同时打上日期标签
+      - name: Build and push Docker image with tags
+        run: |
+          pwd
+          cd beszel/beszel
+          pwd
           docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v8,linux/arm/v7,linux/arm/v6,linux/s390x,linux/ppc64le,linux/riscv64 \
             --file dockerfile_Hub \
             -t ${{ secrets.DOCKERHUB_USERNAME }}/beszel . --push
+      
+      
 
       
 
