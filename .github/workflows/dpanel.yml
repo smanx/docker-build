@@ -14,6 +14,8 @@ jobs:
       - name: Pull Dpanel code
         run: |
           git clone https://github.com/donknap/dpanel.git dpanel
-          
-      - name: Print config.yaml
-        run: cat dpanel/config.yaml
+
+      - name: Build Dpanel
+        run: |
+          cd dpanel
+          go build
