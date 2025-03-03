@@ -22,7 +22,7 @@ jobs:
           # GOOS=linux GOARCH=arm64 go build -o dpanel-arm64
           # GOOS=linux GOARCH=386 go build -o dpanel-386
           # GOOS=linux GOARCH=ppc64le go build -o dpanel-ppc64le
-          # GOOS=linux GOARCH=s390x go build -o dpanel-s390x
+          GOOS=linux GOARCH=s390x go build -o dpanel-s390x
           ls
 
       - name: Copy Dockerfile
@@ -32,3 +32,23 @@ jobs:
           sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-amd64 /app/server/dpanel#g' Dockerfile-lite-amd64
           sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-amd64
           cat Dockerfile-lite-amd64
+          cp Dockerfile-lite Dockerfile-lite-s390x
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-s390x /app/server/dpanel#g' Dockerfile-lite-amd64
+          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-s390x
+          cat Dockerfile-lite-s390x
+
+      # 设置Docker构建环境
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      # 登录DockerHub
+      - name: Login to DockerHub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+              # 构建Docker镜像（支持多平台）并推送到DockerHub，同时打上日期标签
+      - name: Build and push Docker image with tags
+        run: |
+          cd dpanel
+          docker buildx build --platform linux/s390x \
+            --file Dockerfile-lite-s390x \
+            . --push
