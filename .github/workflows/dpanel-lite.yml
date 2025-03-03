@@ -22,12 +22,12 @@ jobs:
       - name: Build Dpanel
         run: |
           cd dpanel
-          GOOS=linux GOARCH=amd64 go build -o dpanel-lite-amd64
-          GOOS=linux GOARCH=arm64 go build -o dpanel-lite-arm64
-          GOOS=linux GOARCH=386 go build -o dpanel-lite-386
-          GOOS=linux GOARCH=ppc64le go build -o dpanel-ppc64le
+          # GOOS=linux GOARCH=amd64 go build -o dpanel-lite-amd64
+          # GOOS=linux GOARCH=arm64 go build -o dpanel-lite-arm64
+          # GOOS=linux GOARCH=386 go build -o dpanel-lite-386
+          # GOOS=linux GOARCH=ppc64le go build -o dpanel-lite-ppc64le
           GOOS=linux GOARCH=s390x go build -o dpanel-lite-s390x
-          GOOS=linux GOARCH=riscv64 go build -o dpanel-lite-riscv64
+          # GOOS=linux GOARCH=riscv64 go build -o dpanel-lite-riscv64
           ls
 
       - name: Copy Dockerfile
