@@ -36,15 +36,15 @@ jobs:
           sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-amd64
           
           cp Dockerfile-lite Dockerfile-lite-arm64
-          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-arm64 /app/server/dpanel#g' Dockerfile-lite-s390x
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-arm64 /app/server/dpanel#g' Dockerfile-lite-arm64
           sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-arm64
           
           cp Dockerfile-lite Dockerfile-lite-386
-          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-386 /app/server/dpanel#g' Dockerfile-lite-s390x
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-386 /app/server/dpanel#g' Dockerfile-lite-386
           sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-386
           
           cp Dockerfile-lite Dockerfile-lite-ppc64le
-          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-ppc64le /app/server/dpanel#g' Dockerfile-lite-s390x
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-ppc64le /app/server/dpanel#g' Dockerfile-lite-ppc64le
           sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-ppc64le
           
           cp Dockerfile-lite Dockerfile-lite-s390x
