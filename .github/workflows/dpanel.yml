@@ -66,24 +66,24 @@ jobs:
           docker buildx build --platform linux/amd64 \
             --file Dockerfile-lite-amd64 \
             -t $IMAGE_NAME:$(date +'%Y%m%d') \
-            -t $IMAGE_NAME .
+            -t $IMAGE_NAME . --push
 
           docker buildx build --platform linux/arm64 \
             --file Dockerfile-lite-arm64 \
             -t $IMAGE_NAME:$(date +'%Y%m%d') \
-            -t $IMAGE_NAME .
+            -t $IMAGE_NAME . --push
 
           docker buildx build --platform linux/386 \
             --file Dockerfile-lite-386 \
             -t $IMAGE_NAME:$(date +'%Y%m%d') \
-            -t $IMAGE_NAME .
+            -t $IMAGE_NAME . --push
 
           docker buildx build --platform linux/ppc64le \
             --file Dockerfile-lite-ppc64le \
             -t $IMAGE_NAME:$(date +'%Y%m%d') \
-            -t $IMAGE_NAME .
+            -t $IMAGE_NAME . --push
 
           docker buildx build --platform linux/s390x \
             --file Dockerfile-lite-s390x \
             -t $IMAGE_NAME:$(date +'%Y%m%d') \
-            -t $IMAGE_NAME . --push
+            -t $IMAGE_NAME .
