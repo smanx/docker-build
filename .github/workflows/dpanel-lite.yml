@@ -1,0 +1,95 @@
+name: Dpanel build
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - push-all
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/dpanel
+      DATE_TAG: $(date +'%Y%m%d')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Pull Dpanel code
+        run: |
+          git clone https://github.com/donknap/dpanel.git dpanel
+
+      - name: Build Dpanel
+        run: |
+          cd dpanel
+          GOOS=linux GOARCH=amd64 go build -o dpanel-amd64
+          GOOS=linux GOARCH=arm64 go build -o dpanel-arm64
+          GOOS=linux GOARCH=386 go build -o dpanel-386
+          GOOS=linux GOARCH=ppc64le go build -o dpanel-ppc64le
+          GOOS=linux GOARCH=s390x go build -o dpanel-s390x
+          GOOS=linux GOARCH=riscv64 go build -o dpanel-riscv64
+          ls
+
+      - name: Copy Dockerfile
+        run: |
+          cd dpanel
+          
+          cp Dockerfile-lite Dockerfile-lite-amd64
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-amd64 /app/server/dpanel#g' Dockerfile-lite-amd64
+          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-amd64
+          
+          cp Dockerfile-lite Dockerfile-lite-arm64
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-arm64 /app/server/dpanel#g' Dockerfile-lite-arm64
+          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-arm64
+          
+          cp Dockerfile-lite Dockerfile-lite-386
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-386 /app/server/dpanel#g' Dockerfile-lite-386
+          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-386
+          
+          cp Dockerfile-lite Dockerfile-lite-ppc64le
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-ppc64le /app/server/dpanel#g' Dockerfile-lite-ppc64le
+          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-ppc64le
+          
+          cp Dockerfile-lite Dockerfile-lite-s390x
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-s390x /app/server/dpanel#g' Dockerfile-lite-s390x
+          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-s390x
+
+          cp Dockerfile-lite Dockerfile-lite-riscv64
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-riscv64 /app/server/dpanel#g' Dockerfile-lite-riscv64
+          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-riscv64
+
+      # 设置Docker构建环境
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      # 登录DockerHub
+      - name: Login to DockerHub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+              # 构建Docker镜像（支持多平台）并推送到DockerHub，同时打上日期标签
+      - name: Build and push Docker image with tags
+        run: |
+          cd dpanel
+          docker buildx build --platform linux/amd64 \
+            --file Dockerfile-lite-amd64 \
+            -t $IMAGE_NAME:lite-amd64 . --push
+
+          docker buildx build --platform linux/arm64 \
+            --file Dockerfile-lite-arm64 \
+            -t $IMAGE_NAME:lite-arm64 . --push
+
+          docker buildx build --platform linux/386 \
+            --file Dockerfile-lite-386 \
+            -t $IMAGE_NAME:lite-386 . --push
+
+          docker buildx build --platform linux/ppc64le \
+            --file Dockerfile-lite-ppc64le \
+            -t $IMAGE_NAME:lite-ppc64le . --push
+
+          docker buildx build --platform linux/s390x \
+            --file Dockerfile-lite-s390x \
+            -t $IMAGE_NAME:lite-s390x . --push
+
+          docker buildx build --platform linux/riscv64 \
+            --file Dockerfile-lite-riscv64 \
+            -t $IMAGE_NAME:lite-riscv64 . --push

@@ -1,8 +1,9 @@
 name: Dpanel build
 on:
+  workflow_dispatch:
   push:
     branches:
-      - main
+      - push-all
 
 jobs:
   build:
@@ -33,29 +34,29 @@ jobs:
         run: |
           cd dpanel
           
-          cp Dockerfile-lite Dockerfile-lite-amd64
-          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-amd64 /app/server/dpanel#g' Dockerfile-lite-amd64
-          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-amd64
+          cp Dockerfile Dockerfile-amd64
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-amd64 /app/server/dpanel#g' Dockerfile-amd64
+          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-amd64
           
-          cp Dockerfile-lite Dockerfile-lite-arm64
-          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-arm64 /app/server/dpanel#g' Dockerfile-lite-arm64
-          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-arm64
+          cp Dockerfile Dockerfile-arm64
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-arm64 /app/server/dpanel#g' Dockerfile-arm64
+          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-arm64
           
-          cp Dockerfile-lite Dockerfile-lite-386
-          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-386 /app/server/dpanel#g' Dockerfile-lite-386
-          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-386
+          cp Dockerfile Dockerfile-386
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-386 /app/server/dpanel#g' Dockerfile-386
+          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-386
           
-          cp Dockerfile-lite Dockerfile-lite-ppc64le
-          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-ppc64le /app/server/dpanel#g' Dockerfile-lite-ppc64le
-          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-ppc64le
+          cp Dockerfile Dockerfile-ppc64le
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-ppc64le /app/server/dpanel#g' Dockerfile-ppc64le
+          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-ppc64le
           
-          cp Dockerfile-lite Dockerfile-lite-s390x
-          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-s390x /app/server/dpanel#g' Dockerfile-lite-s390x
-          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-s390x
+          cp Dockerfile Dockerfile-s390x
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-s390x /app/server/dpanel#g' Dockerfile-s390x
+          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-s390x
 
-          cp Dockerfile-lite Dockerfile-lite-riscv64
-          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-riscv64 /app/server/dpanel#g' Dockerfile-lite-riscv64
-          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-lite-riscv64
+          cp Dockerfile Dockerfile-riscv64
+          sed -i 's#COPY ./runtime/dpanel${APP_FAMILY:+"-${APP_FAMILY}"}-musl-${TARGETARCH} /app/server/dpanel#COPY ./dpanel-riscv64 /app/server/dpanel#g' Dockerfile-riscv64
+          sed -i 's#COPY ./runtime/config.yaml /app/server/config.yaml#COPY ./config.yaml /app/server/config.yaml#g' Dockerfile-riscv64
 
       # 设置Docker构建环境
       - name: Set up Docker Buildx
@@ -70,31 +71,25 @@ jobs:
         run: |
           cd dpanel
           docker buildx build --platform linux/amd64 \
-            --file Dockerfile-lite-amd64 \
-            # -t $IMAGE_NAME:amd64-${{ env.DATE_TAG }} \
+            --file Dockerfile-amd64 \
             -t $IMAGE_NAME:amd64 . --push
 
           docker buildx build --platform linux/arm64 \
-            --file Dockerfile-lite-arm64 \
-            # -t $IMAGE_NAME:arm64-${{ env.DATE_TAG }} \
+            --file Dockerfile-arm64 \
             -t $IMAGE_NAME:arm64 . --push
 
           docker buildx build --platform linux/386 \
-            --file Dockerfile-lite-386 \
-            # -t $IMAGE_NAME:386-${{ env.DATE_TAG }} \
+            --file Dockerfile-386 \
             -t $IMAGE_NAME:386 . --push
 
           docker buildx build --platform linux/ppc64le \
-            --file Dockerfile-lite-ppc64le \
-            # -t $IMAGE_NAME:ppc64le-${{ env.DATE_TAG }} \
+            --file Dockerfile-ppc64le \
             -t $IMAGE_NAME:ppc64le . --push
 
           docker buildx build --platform linux/s390x \
-            --file Dockerfile-lite-s390x \
-            # -t $IMAGE_NAME:s390x-${{ env.DATE_TAG }} \
+            --file Dockerfile-s390x \
             -t $IMAGE_NAME:s390x . --push
 
           docker buildx build --platform linux/riscv64 \
-            --file Dockerfile-lite-riscv64 \
-            # -t $IMAGE_NAME:riscv64-${{ env.DATE_TAG }} \
+            --file Dockerfile-riscv64 \
             -t $IMAGE_NAME:riscv64 . --push
