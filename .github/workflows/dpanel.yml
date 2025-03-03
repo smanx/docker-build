@@ -101,3 +101,4 @@ jobs:
           docker manifest annotate $IMAGE_NAME:${{ env.DATE_TAG }} $IMAGE_NAME:${{ env.DATE_TAG }}-ppc64le --arch ppc64le
           docker manifest annotate $IMAGE_NAME:${{ env.DATE_TAG }} $IMAGE_NAME:${{ env.DATE_TAG }}-s390x --arch s390x
           docker manifest push $IMAGE_NAME:${{ env.DATE_TAG }}
+          docker manifest push $IMAGE_NAME
