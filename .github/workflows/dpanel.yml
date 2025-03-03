@@ -53,5 +53,5 @@ jobs:
           cd dpanel
           docker buildx build --platform linux/s390x \
             --file Dockerfile-lite-s390x \
-            -t smanx/dpanel
+            -t $IMAGE_NAME \
             . --push
