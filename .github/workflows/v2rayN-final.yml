@@ -62,7 +62,7 @@ jobs:
           
           # 标记镜像
           docker tag $IMAGE_NAME $FULL_IMAGE_NAME:$VERSION
-          docker tag $IMAGE_NAME $FULL_IMAGE_NAME:
+          docker tag $IMAGE_NAME $FULL_IMAGE_NAME
           # 推送镜像
           docker push $FULL_IMAGE_NAME:$VERSION
           docker push $FULL_IMAGE_NAME
