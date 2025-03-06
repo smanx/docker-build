@@ -1,6 +1,8 @@
 name: v2rayN final build
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # 每天的00:00触发
   push:
     branches:
       - push-all
@@ -54,7 +56,7 @@ jobs:
           echo "old_version=${OLD_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Push image if version changed
-        # if: steps.version.outputs.new_version != steps.version.outputs.old_version
+        if: steps.version.outputs.new_version != steps.version.outputs.old_version
         run: |
           VERSION="${{ steps.version.outputs.new_version }}"
           cd docker-project/v2rayN
@@ -64,5 +66,4 @@ jobs:
             -t $IMAGE_NAME:$VERSION \
             -t $IMAGE_NAME \
             . --push
-          
           echo "Successfully pushed new version: $VERSION"
