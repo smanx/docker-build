@@ -33,15 +33,15 @@ jobs:
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --file Dockerfile-v2rayN \
-            -t temp-image \
-            --load .
+            -t $IMAGE_NAME \
+            . --push
 
       - name: Extract version
         id: version
         run: |
           # 从新构建的镜像中提取版本号
           docker images -a
-          NEW_VERSION=$(docker run --rm temp-image cat /etc/cont-env.d/APP_VERSION)
+          NEW_VERSION=$(docker run --rm $IMAGE_NAME cat /etc/cont-env.d/APP_VERSION)
           echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
           
           FULL_IMAGE_NAME="$IMAGE_NAME"
@@ -60,11 +60,9 @@ jobs:
           FULL_IMAGE_NAME="$IMAGE_NAME"
           
           # 标记镜像
-          docker tag temp-image $FULL_IMAGE_NAME:$VERSION
-          docker tag temp-image $FULL_IMAGE_NAME:latest
+          docker tag $IMAGE_NAME $FULL_IMAGE_NAME:$VERSION
           
           # 推送镜像
           docker push $FULL_IMAGE_NAME:$VERSION
-          docker push $FULL_IMAGE_NAME:latest
           
           echo "Successfully pushed new version: $VERSION"
