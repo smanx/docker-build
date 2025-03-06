@@ -55,7 +55,7 @@ jobs:
         if: steps.version.outputs.new_version != steps.version.outputs.old_version
         run: |
           VERSION="${{ steps.version.outputs.new_version }}"
-          FULL_IMAGE_NAME="${{ secrets.DOCKER_REPOSITORY }}/${{ secrets.DOCKER_IMAGE_NAME }}"
+          FULL_IMAGE_NAME="$IMAGE_NAME"
           
           # 标记镜像
           docker tag temp-image $FULL_IMAGE_NAME:$VERSION
