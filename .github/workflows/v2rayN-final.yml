@@ -18,21 +18,24 @@ jobs:
         run: |
           git clone https://$REPO_ACCESS_TOKEN@github.com/smanx/docker-project.git docker-project
 
-      # 设置 Docker 构建环境
+          - name: Set up QEMU
+          uses: docker/setup-qemu-action@v2
+  
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v2
 
-      # 登录 DockerHub
-      - name: Login to DockerHub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      # 构建 Docker 镜像（支持多平台）并推送到 DockerHub
-      - name: Build and push Docker image with tags
-        run: |
-          cd docker-project/v2rayN
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            --file Dockerfile-v2rayN \
-            -t $IMAGE_NAME:$(date +'%Y%m%d') \
-            -t $IMAGE_NAME \
-            . --push
+      - name: Build and push multi-platform, multi-tag image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64  # 多平台
+          push: true
+          tags: |
+            $IMAGE_NAME:test1
+            $IMAGE_NAME:test2
