@@ -40,8 +40,8 @@ jobs:
         id: version
         run: |
           # 从新构建的镜像中提取版本号
-          docker images -a
           NEW_VERSION=$(docker run --rm $IMAGE_NAME cat /etc/cont-env.d/APP_VERSION)
+          echo "new_version=${NEW_VERSION}"
           echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
           
           FULL_IMAGE_NAME="$IMAGE_NAME"
@@ -51,6 +51,7 @@ jobs:
           else
             OLD_VERSION="none"
           fi
+          echo "old_version=${OLD_VERSION}"
           echo "old_version=${OLD_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Push image if version changed
