@@ -33,14 +33,14 @@ jobs:
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --file Dockerfile-v2rayN \
-            -t $IMAGE_NAME \
+            -t $IMAGE_NAME:dev \
             . --push
 
       - name: Extract version
         id: version
         run: |
           # 从新构建的镜像中提取版本号
-          NEW_VERSION=$(docker run --rm $IMAGE_NAME cat /etc/cont-env.d/APP_VERSION)
+          NEW_VERSION=$(docker run --rm $IMAGE_NAME:dev cat /etc/cont-env.d/APP_VERSION)
           echo "new_version=${NEW_VERSION}"
           echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
           
@@ -55,15 +55,16 @@ jobs:
           echo "old_version=${OLD_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Push image if version changed
-        if: steps.version.outputs.new_version != steps.version.outputs.old_version
+        # if: steps.version.outputs.new_version != steps.version.outputs.old_version
         run: |
           VERSION="${{ steps.version.outputs.new_version }}"
           FULL_IMAGE_NAME="$IMAGE_NAME"
           
           # 标记镜像
           docker tag $IMAGE_NAME $FULL_IMAGE_NAME:$VERSION
-          
+          docker tag $IMAGE_NAME $FULL_IMAGE_NAME:
           # 推送镜像
           docker push $FULL_IMAGE_NAME:$VERSION
+          docker push $FULL_IMAGE_NAME
           
           echo "Successfully pushed new version: $VERSION"
