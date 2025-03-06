@@ -14,10 +14,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # 测试 GitHub PAT 访问权限
+      - name: Test GitHub PAT access
+        env:
+          REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+        run: |
+          curl -H "Authorization: token $REPO_ACCESS_TOKEN" https://api.github.com/repos/smanx/docker-project
+
       # 拉取私有仓库代码（使用 GitHub PAT）
       - name: Pull docker-project code
         env:
-          REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }} # 从 Secrets 中获取 GitHub PAT
+          REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
         run: |
           git clone https://$REPO_ACCESS_TOKEN@github.com/smanx/docker-project.git docker-project
 
