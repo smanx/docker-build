@@ -44,10 +44,9 @@ jobs:
           echo "new_version=${NEW_VERSION}"
           echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
           
-          FULL_IMAGE_NAME="$IMAGE_NAME"
           # 尝试拉取最新镜像获取旧版本号
-          if docker pull $FULL_IMAGE_NAME:latest 2>/dev/null; then
-            OLD_VERSION=$(docker run --rm $FULL_IMAGE_NAME:latest cat /etc/cont-env.d/APP_VERSION)
+          if docker pull $IMAGE_NAME:latest 2>/dev/null; then
+            OLD_VERSION=$(docker run --rm $IMAGE_NAME:latest cat /etc/cont-env.d/APP_VERSION)
           else
             OLD_VERSION="none"
           fi
@@ -58,13 +57,12 @@ jobs:
         # if: steps.version.outputs.new_version != steps.version.outputs.old_version
         run: |
           VERSION="${{ steps.version.outputs.new_version }}"
-          FULL_IMAGE_NAME="$IMAGE_NAME"
-          
-          # 标记镜像
-          docker tag $IMAGE_NAME $FULL_IMAGE_NAME:$VERSION
-          docker tag $IMAGE_NAME $FULL_IMAGE_NAME
-          # 推送镜像
-          docker push $FULL_IMAGE_NAME:$VERSION
-          docker push $FULL_IMAGE_NAME
+          cd docker-project/v2rayN
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --file Dockerfile-v2rayN \
+            -t $IMAGE_NAME:$VERSION \
+            -t $IMAGE_NAME \
+            . --push
           
           echo "Successfully pushed new version: $VERSION"
