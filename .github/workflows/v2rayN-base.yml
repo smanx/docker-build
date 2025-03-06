@@ -9,7 +9,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/v2rayn
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/docker-v2rayn
     steps:
       # 拉取私有仓库代码（使用 GitHub PAT）
       - name: Pull docker-project code
