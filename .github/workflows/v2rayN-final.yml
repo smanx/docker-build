@@ -33,6 +33,36 @@ jobs:
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --file Dockerfile-v2rayN \
-            -t $IMAGE_NAME:$(date +'%Y%m%d') \
-            -t $IMAGE_NAME \
-            . --push
+            -t temp-image .
+
+      - name: Extract version
+        id: version
+        run: |
+          # 从新构建的镜像中提取版本号
+          NEW_VERSION=$(docker run --rm temp-image cat /etc/cont-env.d/APP_VERSION)
+          echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          
+          FULL_IMAGE_NAME="$IMAGE_NAME"
+          # 尝试拉取最新镜像获取旧版本号
+          if docker pull $FULL_IMAGE_NAME:latest 2>/dev/null; then
+            OLD_VERSION=$(docker run --rm $FULL_IMAGE_NAME:latest cat /etc/cont-env.d/APP_VERSION)
+          else
+            OLD_VERSION="none"
+          fi
+          echo "old_version=${OLD_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Push image if version changed
+        if: steps.version.outputs.new_version != steps.version.outputs.old_version
+        run: |
+          VERSION="${{ steps.version.outputs.new_version }}"
+          FULL_IMAGE_NAME="${{ secrets.DOCKER_REPOSITORY }}/${{ secrets.DOCKER_IMAGE_NAME }}"
+          
+          # 标记镜像
+          docker tag temp-image $FULL_IMAGE_NAME:$VERSION
+          docker tag temp-image $FULL_IMAGE_NAME:latest
+          
+          # 推送镜像
+          docker push $FULL_IMAGE_NAME:$VERSION
+          docker push $FULL_IMAGE_NAME:latest
+          
+          echo "Successfully pushed new version: $VERSION"
