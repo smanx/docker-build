@@ -18,12 +18,14 @@ jobs:
           
       - name: Pull Docker Images
         run: |
-          # 从仓库变量读取镜像信息
-          IFS=$'\n' read -rd '' -a images <<< "${{ vars.DOCKER_IMAGES }}"
+          # 将变量内容保存到文件中
+          echo "${{ vars.DOCKER_IMAGES }}" > images.txt
           
-          for image_info in "${images[@]}"; do
-            # 分割镜像名和次数
-            read -r image_name pull_count <<< "$image_info"
+          # 读取文件并处理每一行
+          while IFS=' ' read -r image_name pull_count || [ -n "$image_name" ]; do
+            if [ -z "$image_name" ]; then
+              continue
+            fi
             
             echo "Processing image: $image_name, pull count: $pull_count"
             
@@ -33,4 +35,4 @@ jobs:
               docker pull "$image_name"
               sleep 2
             done
-          done 
+          done < images.txt 
