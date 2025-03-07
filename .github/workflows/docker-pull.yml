@@ -18,14 +18,17 @@ jobs:
           
       - name: Pull Docker Images
         run: |
-          # 将变量内容保存到文件中
-          echo "${{ vars.DOCKER_IMAGES }}" > images.txt
+          # 将变量内容保存到文件中并确保使用 Unix 格式的换行符
+          echo "${{ vars.DOCKER_IMAGES }}" | tr -d '\r' > images.txt
           
           # 读取文件并处理每一行
           while IFS=' ' read -r image_name pull_count || [ -n "$image_name" ]; do
             if [ -z "$image_name" ]; then
               continue
             fi
+            
+            # 清理 pull_count 中的任何非数字字符
+            pull_count=$(echo "$pull_count" | tr -cd '0-9')
             
             echo "Processing image: $image_name, pull count: $pull_count"
             
