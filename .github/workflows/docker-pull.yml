@@ -35,7 +35,7 @@ jobs:
             # 循环拉取指定次数
             for ((i=1; i<=$pull_count; i++)); do
               echo "Pull attempt $i for $image_name"
-              docker pull "$image_name"
-              sleep 2
+              docker pull "$image_name" > /dev/null 2>&1
+              sleep 1
             done
           done < images.txt 
