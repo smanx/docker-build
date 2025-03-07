@@ -56,7 +56,6 @@ jobs:
               
               # 只在最后一次循环时保存镜像到缓存
               if [ $i -eq $pull_count ]; then
-                echo "Saving image $image_name to cache..."
                 image_filename=$(echo "$image_name" | tr '/:' '_')
                 docker save "$image_name" -o "/tmp/docker-cache/${image_filename}.tar"
                 echo "Image saved to /tmp/docker-cache/${image_filename}.tar"
