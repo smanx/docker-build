@@ -1,0 +1,36 @@
+name: Docker Multi Pull
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *'  # 每6小时运行一次
+
+jobs:
+  pull-images:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Docker Login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          
+      - name: Pull Docker Images
+        run: |
+          # 从仓库变量读取镜像信息
+          IFS=$'\n' read -rd '' -a images <<< "${{ vars.DOCKER_IMAGES }}"
+          
+          for image_info in "${images[@]}"; do
+            # 分割镜像名和次数
+            read -r image_name pull_count <<< "$image_info"
+            
+            echo "Processing image: $image_name, pull count: $pull_count"
+            
+            # 循环拉取指定次数
+            for ((i=1; i<=$pull_count; i++)); do
+              echo "Pull attempt $i for $image_name"
+              docker pull "$image_name"
+              sleep 2
+            done
+          done 
