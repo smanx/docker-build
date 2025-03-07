@@ -29,7 +29,7 @@ jobs:
       - name: Random delay
         run: |
           # 生成0到21600秒（6小时）之间的随机数
-          DELAY=$((RANDOM % （6 * 60 * 60）))
+          DELAY=$((RANDOM % (6 * 60 * 60)))
           echo "Waiting for $DELAY seconds before starting..."
           sleep $DELAY
       
