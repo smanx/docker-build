@@ -3,7 +3,7 @@ name: Docker Multi Pull
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/10 * * * *'  # 每10分钟运行一次
+    - cron: '0 */6 * * *'  # 每6小时运行一次
 
 jobs:
   pull-images:
@@ -26,6 +26,12 @@ jobs:
               [ -f "$image" ] && docker load -i "$image" || true
             done
           fi
+      - name: Random delay
+        run: |
+          # 生成0到21600秒（6小时）之间的随机数
+          DELAY=$((RANDOM % （6 * 60 * 60）))
+          echo "Waiting for $DELAY seconds before starting..."
+          sleep $DELAY
       
       - name: Docker Login
         uses: docker/login-action@v3
