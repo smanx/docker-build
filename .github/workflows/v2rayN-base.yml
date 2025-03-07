@@ -10,13 +10,15 @@ jobs:
     runs-on: ubuntu-latest
     env:
       IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/docker-v2rayn
+      REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
+      REPO_PATH: ${{ vars.REPO_PATH }}   
     steps:
       # 拉取私有仓库代码（使用 GitHub PAT）
-      - name: Pull docker-project code
+      - name: Pull project code
         env:
           REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
         run: |
-          git clone https://$REPO_ACCESS_TOKEN@github.com/smanx/docker-project.git docker-project
+          git clone https://$REPO_ACCESS_TOKEN@$REPO_URL $REPO_PATH
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
@@ -29,7 +31,7 @@ jobs:
       # 构建 Docker 镜像（支持多平台）并推送到 DockerHub
       - name: Build and push Docker image with tags
         run: |
-          cd docker-project/v2rayN
+          cd $REPO_PATH/v2rayN
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --file Dockerfile-base \
