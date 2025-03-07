@@ -1,4 +1,4 @@
-name: qq final build
+name: QQ build
 on:
   workflow_dispatch:
   schedule:
