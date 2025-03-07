@@ -33,6 +33,7 @@ jobs:
         run: |
           cd $REPO_PATH/qq
           docker buildx build \
+             --no-cache \
             --platform linux/amd64,linux/arm64 \
             --file Dockerfile-base \
             -t $IMAGE_NAME:base-$(date +'%Y%m%d') \
