@@ -12,9 +12,13 @@ jobs:
     steps:
       - name: Random delay
         run: |
-          # 生成0到21600秒（6小时）之间的随机数
+          # 生成随机数
           DELAY=$((RANDOM % (6 * 60 * 60)))
-          echo "Waiting for $DELAY seconds before starting..."
+          # 将秒数转换为时分秒格式
+          HOURS=$((DELAY / 3600))
+          MINUTES=$(((DELAY % 3600) / 60))
+          SECONDS=$((DELAY % 60))
+          echo "Waiting for ${HOURS}h ${MINUTES}m ${SECONDS}s before starting..."
           sleep $DELAY
 
       - name: Cache Docker images
