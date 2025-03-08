@@ -10,17 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Random delay
-        run: |
-          # 生成随机数
-          DELAY=$((RANDOM % (6 * 60 * 60)))
-          # 将秒数转换为时分秒格式
-          HOURS=$((DELAY / 3600))
-          MINUTES=$(((DELAY % 3600) / 60))
-          SECONDS=$((DELAY % 60))
-          echo "Waiting for ${HOURS}h ${MINUTES}m ${SECONDS}s before starting..."
-          sleep $DELAY
-
       - name: Cache Docker images
         uses: actions/cache@v3
         with:
@@ -72,6 +61,10 @@ jobs:
                 echo "Image saved to /tmp/docker-cache/${image_filename}.tar"
               fi
               
-              sleep 1
+              # 修改为休眠随机时长
+              sleeptime=${{ vars.SLEEPTIME }}
+              random_sleep=$((RANDOM % (sleeptime + 1)))
+              echo "Random sleep time: $random_sleep seconds"
+              sleep $random_sleep
             done
           done < images.txt 
