@@ -51,29 +51,31 @@ jobs:
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
       # 构建 Base
-      - name: Build and push Docker image with tags
+      - name: Build Base and push Docker image with tags
         if: ${{ env.build_type == 'base' }}
         run: |
           cd $REPO_PATH/qq
           docker buildx build \
               --no-cache \
             --platform linux/amd64,linux/arm64 \
-            --file Dockerfile-base \
+            --file Dockerfile-x \
+            --build-arg BUILD_TYPE=base \
             -t $IMAGE_NAME:base-$(date +'%Y%m%d') \
             -t $IMAGE_NAME:base \
             . --push
 
-      # 构建 App
-      - name: Build and push Docker image with tags
+      # 构建 Dev
+      - name: Build App and push Docker image with tags
         if: ${{ env.build_type != 'base' }}
         run: |
           cd $REPO_PATH/qq
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
-            --file Dockerfile \
+            --file Dockerfile-x \
+            --build-arg BUILD_TYPE=app \
             -t $IMAGE_NAME:dev \
             . --push
-
+            
       - name: Extract version
         if: ${{ env.build_type != 'base' }}
         id: version
@@ -99,7 +101,8 @@ jobs:
           cd $REPO_PATH/qq
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
-            --file Dockerfile \
+            --file Dockerfile-x \
+            --build-arg BUILD_TYPE=app \
             -t $IMAGE_NAME:$VERSION \
             -t $IMAGE_NAME \
             . --push
