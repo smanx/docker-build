@@ -62,7 +62,7 @@ jobs:
               fi
               
               # 修改为休眠随机时长
-              sleeptime=${{ vars.SLEEPTIME }}
+              sleeptime=${{ vars.PULLSLEEPTIME }}
               random_sleep=$((RANDOM % (sleeptime + 1)))
               echo "Random sleep time: $random_sleep seconds"
               sleep $random_sleep
