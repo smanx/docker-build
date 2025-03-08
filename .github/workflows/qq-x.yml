@@ -1,4 +1,4 @@
-name: QQ build
+name: QQ-x build
 on:
   workflow_dispatch:
     inputs:
@@ -25,6 +25,16 @@ jobs:
       REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
       REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
     steps:
+      # 设置默认的 build_type
+      - name: Set default build type
+        id: set_build_type
+        run: |
+          if [ -z "${{ github.event.inputs.build_type }}" ]; then
+            echo "build_type=app" >> $GITHUB_ENV
+          else
+            echo "build_type=${{ github.event.inputs.build_type }}" >> $GITHUB_ENV
+          fi
+
       # 拉取私有仓库代码（使用 GitHub PAT）
       - name: Pull project code
         env:
@@ -42,7 +52,7 @@ jobs:
 
       # 构建 Base
       - name: Build and push Docker image with tags
-        if: ${{ github.event.inputs.build_type == 'base' }}
+        if: ${{ env.build_type == 'base' }}
         run: |
           cd $REPO_PATH/qq
           docker buildx build \
@@ -55,7 +65,7 @@ jobs:
 
       # 构建 App
       - name: Build and push Docker image with tags
-        if: ${{ github.event.inputs.build_type != 'base' }}
+        if: ${{ env.build_type != 'base' }}
         run: |
           cd $REPO_PATH/qq
           docker buildx build \
@@ -65,7 +75,7 @@ jobs:
             . --push
 
       - name: Extract version
-        if: ${{ github.event.inputs.build_type != 'base' }}
+        if: ${{ env.build_type != 'base' }}
         id: version
         run: |
           # 从新构建的镜像中提取版本号
@@ -83,8 +93,7 @@ jobs:
           echo "old_version=${OLD_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Push image if version changed
-        if: ${{ github.event.inputs.build_type != 'base' }}
-        # if: steps.version.outputs.new_version != steps.version.outputs.old_version
+        if: ${{ env.build_type != 'base' }}
         run: |
           VERSION="${{ steps.version.outputs.new_version }}"
           cd $REPO_PATH/qq
