@@ -1,4 +1,4 @@
-name: mihomo-party final build
+name: mihomo-party build
 on:
   workflow_dispatch:
     inputs:
