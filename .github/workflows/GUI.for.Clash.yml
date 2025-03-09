@@ -51,6 +51,8 @@ jobs:
       - name: Copy Dockerfile to GUI.for.Clash
         run: |
           cp $REPO_PATH/qq/Dockerfile-x GUI.for.Clash/
+          pwd
+          ls GUI.for.Clash
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
