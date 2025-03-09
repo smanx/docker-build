@@ -1,0 +1,119 @@
+name: QQ-x build
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type (app or base or all)'
+        required: true
+        default: 'app'
+        type: choice
+        options:
+          - app
+          - base
+          - all
+  # schedule:
+  #   - cron: '0 0 * * *'  # 每天的00:00触发
+  push:
+    branches:
+      - push-all
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/gui.for.clash
+      REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
+      REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
+    steps:
+      # 设置默认的 build_type
+      - name: Set default build type
+        id: set_build_type
+        run: |
+          if [ -z "${{ github.event.inputs.build_type }}" ]; then
+            echo "build_type=app" >> $GITHUB_ENV
+          else
+            echo "build_type=${{ github.event.inputs.build_type }}" >> $GITHUB_ENV
+          fi
+
+      # 拉取私有仓库代码（使用 GitHub PAT）
+      - name: Pull project code
+        env:
+          REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+        run: |
+          git clone https://$REPO_ACCESS_TOKEN@$REPO_URL $REPO_PATH
+
+      # 克隆https://github.com/GUI-for-Cores/GUI.for.Clash.git
+      - name: Clone GUI.for.Clash
+        run: |
+            git clone https://github.com/GUI-for-Cores/GUI.for.Clash.git
+
+            # 复制$REPO_PATH/Dockerfile到GUI.for.Clash目录下
+            - name: Copy Dockerfile to GUI.for.Clash
+                run: |
+                cp $REPO_PATH/qq/Dockerfile-x GUI.for.Clash/
+
+      # 设置 Docker 构建环境
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      # 登录 DockerHub
+      - name: Login to DockerHub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      # 构建 Base
+      - name: Build Base and push Docker image with tags
+        if: ${{ env.build_type == 'base' }}
+        run: |
+          cd GUI.for.Clash
+          docker buildx build \
+              --no-cache \
+            --platform linux/amd64,linux/arm64 \
+            --file Dockerfile-x \
+            --build-arg BUILD_TYPE=base \
+            -t $IMAGE_NAME:base-$(date +'%Y%m%d') \
+            -t $IMAGE_NAME:base \
+            . --push
+
+      # 构建 Dev
+      - name: Build App and push Docker image with tags
+        if: ${{ env.build_type != 'base' }}
+        run: |
+          cd GUI.for.Clash
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --file Dockerfile-x \
+            --build-arg BUILD_TYPE=app \
+            -t $IMAGE_NAME:dev \
+            . --push
+            
+      - name: Extract version
+        if: ${{ env.build_type != 'base' }}
+        id: version
+        run: |
+          # 从新构建的镜像中提取版本号
+          NEW_VERSION=$(docker run --rm $IMAGE_NAME:dev cat /etc/cont-env.d/APP_VERSION)
+          echo "new_version=${NEW_VERSION}"
+          echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          
+          # 尝试拉取最新镜像获取旧版本号
+          if docker pull $IMAGE_NAME:latest 2>/dev/null; then
+            OLD_VERSION=$(docker run --rm $IMAGE_NAME:latest cat /etc/cont-env.d/APP_VERSION)
+          else
+            OLD_VERSION="none"
+          fi
+          echo "old_version=${OLD_VERSION}"
+          echo "old_version=${OLD_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Push image if version changed
+        if: ${{ env.build_type != 'base' }}
+        run: |
+          VERSION="${{ steps.version.outputs.new_version }}"
+          cd $REPO_PATH/qq
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --file Dockerfile-x \
+            --build-arg BUILD_TYPE=app \
+            -t $IMAGE_NAME:$VERSION \
+            -t $IMAGE_NAME \
+            . --push
+          echo "Successfully pushed new version: $VERSION"
