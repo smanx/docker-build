@@ -47,10 +47,10 @@ jobs:
         run: |
             git clone https://github.com/GUI-for-Cores/GUI.for.Clash.git
 
-            # 复制$REPO_PATH/Dockerfile到GUI.for.Clash目录下
-            - name: Copy Dockerfile to GUI.for.Clash
-                run: |
-                cp $REPO_PATH/qq/Dockerfile-x GUI.for.Clash/
+      # 复制$REPO_PATH/Dockerfile到GUI.for.Clash目录下
+      - name: Copy Dockerfile to GUI.for.Clash
+        run: |
+          cp $REPO_PATH/qq/Dockerfile-x GUI.for.Clash/
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
