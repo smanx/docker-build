@@ -1,4 +1,5 @@
 name: GUI.for.Clash build
+
 on:
   workflow_dispatch:
     inputs:
@@ -11,8 +12,6 @@ on:
           - app
           - base
           - all
-  # schedule:
-  #   - cron: '0 0 * * *'  # 每天的00:00触发
   push:
     branches:
       - push-all
@@ -42,77 +41,46 @@ jobs:
         run: |
           git clone https://$REPO_ACCESS_TOKEN@$REPO_URL $REPO_PATH
 
-      # 克隆https://github.com/GUI-for-Cores/GUI.for.Clash.git
-      - name: Clone GUI.for.Clash
+      # 克隆 GUI.for.Clash 仓库并获取 tag 列表
+      - name: Clone GUI.for.Clash and get tags
         run: |
-            git clone https://github.com/GUI-for-Cores/GUI.for.Clash.git
-
-      # 复制$REPO_PATH/Dockerfile到GUI.for.Clash目录下
-      - name: Copy Dockerfile to GUI.for.Clash
-        run: |
-          cp $REPO_PATH/GUI.for.Clash/Dockerfile GUI.for.Clash/
-          pwd
-          ls GUI.for.Clash
-
-      # 设置 Docker 构建环境
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
-
-      # 登录 DockerHub
-      - name: Login to DockerHub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-
-      # 构建 Base
-      - name: Build Base and push Docker image with tags
-        if: ${{ env.build_type == 'base' }}
-        run: |
+          git clone https://github.com/GUI-for-Cores/GUI.for.Clash.git
           cd GUI.for.Clash
-          docker buildx build \
-              --no-cache \
-            --platform linux/amd64,linux/arm64 \
-            --build-arg BUILD_TYPE=base \
-            -t $IMAGE_NAME:base-$(date +'%Y%m%d') \
-            -t $IMAGE_NAME:base \
-            . --push
+          git fetch --tags
+          git tag -l > ../tags.txt
 
-      # 构建 Dev
-      - name: Build App and push Docker image with tags
-        if: ${{ env.build_type != 'base' }}
+      # 获取 Docker Hub 上的 tag 列表
+      - name: Get Docker Hub tags
         run: |
-          cd GUI.for.Clash
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            --build-arg BUILD_TYPE=app \
-            -t $IMAGE_NAME:dev \
-            . --push
-            
-      - name: Extract version
-        if: ${{ env.build_type != 'base' }}
-        id: version
+          IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/gui.for.clash
+          curl -s "https://registry.hub.docker.com/v2/repositories/$IMAGE_NAME/tags/?page_size=100" | jq -r '.results[].name' > docker_tags.txt
+
+      # 对比 tag 列表并切换到对应 tag
+      - name: Compare tags and build missing ones
         run: |
-          # 从新构建的镜像中提取版本号
-          NEW_VERSION=$(docker run --rm $IMAGE_NAME:dev cat /etc/cont-env.d/APP_VERSION)
-          echo "new_version=${NEW_VERSION}"
-          echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          # 读取 GitHub 仓库的 tag 列表
+          GITHUB_TAGS=$(cat tags.txt)
           
-          # 尝试拉取最新镜像获取旧版本号
-          if docker pull $IMAGE_NAME:latest 2>/dev/null; then
-            OLD_VERSION=$(docker run --rm $IMAGE_NAME:latest cat /etc/cont-env.d/APP_VERSION)
-          else
-            OLD_VERSION="none"
-          fi
-          echo "old_version=${OLD_VERSION}"
-          echo "old_version=${OLD_VERSION}" >> $GITHUB_OUTPUT
-
-      - name: Push image if version changed
-        if: ${{ env.build_type != 'base' }}
-        run: |
-          VERSION="${{ steps.version.outputs.new_version }}"
-          cd $REPO_PATH/qq
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            --build-arg BUILD_TYPE=app \
-            -t $IMAGE_NAME:$VERSION \
-            -t $IMAGE_NAME \
-            . --push
-          echo "Successfully pushed new version: $VERSION"
+          # 读取 Docker Hub 的 tag 列表
+          DOCKER_TAGS=$(cat docker_tags.txt)
+          
+          # 遍历 GitHub 的 tag 列表
+          for TAG in $GITHUB_TAGS; do
+            # 检查当前 tag 是否在 Docker Hub 的 tag 列表中
+            if ! echo "$DOCKER_TAGS" | grep -q "^$TAG$"; then
+              echo "Building and pushing tag: $TAG"
+              
+              # 切换到对应的 tag
+              cd GUI.for.Clash
+              git checkout $TAG
+              cp $REPO_PATH/GUI.for.Clash/Dockerfile GUI.for.Clash/
+              # 构建并推送 Docker 镜像
+              docker buildx build \
+                --platform linux/amd64,linux/arm64 \
+                --build-arg BUILD_TYPE=app \
+                -t $IMAGE_NAME:$TAG \
+                . --push
+            else
+              echo "Tag $TAG already exists on Docker Hub, skipping..."
+            fi
+          done
