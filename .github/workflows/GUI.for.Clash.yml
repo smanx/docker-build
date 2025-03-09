@@ -1,4 +1,4 @@
-name: QQ-x build
+name: GUI.for.Clash build
 on:
   workflow_dispatch:
     inputs:
