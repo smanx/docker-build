@@ -68,7 +68,7 @@ jobs:
           echo "old_version=${OLD_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Push image if version changed
-        if: steps.version.outputs.new_version != steps.version.outputs.old_version
+        # if: steps.version.outputs.new_version != steps.version.outputs.old_version
         run: |
           VERSION="${{ steps.version.outputs.new_version }}"
           cd $REPO_PATH/mihomo-party
