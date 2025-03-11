@@ -46,7 +46,7 @@ jobs:
       # 构建 Base
       - name: Build Base and push Docker image with tags
         run: |
-          cd $REPO_PATH/qt
+          cd ./QtScrcpy
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             -t $IMAGE_NAME \
