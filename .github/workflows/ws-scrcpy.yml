@@ -1,0 +1,83 @@
+name: ws-scrcpy build
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'latest'
+  # schedule:
+  #   - cron: '0 0 * * *'  # 每天的00:00触发
+  push:
+    branches:
+      - push-all
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/ws-scrcpy
+      REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
+      REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
+      build_tag: ""  # 新增：定义 build_tag 变量
+
+    steps:
+      - name: Get tag based on build_type
+        run: |
+          if [[ "${{ github.event.inputs.build_type }}" == "latest" || "${{ github.event.inputs.build_type }}" == "" ]]; then
+            LATEST_TAG=$(git ls-remote --tags https://github.com/NetrisTV/ws-scrcpy.git | cut -d/ -f3 | sort -V | tail -n1)
+            echo "build_tag=${LATEST_TAG}" >> $GITHUB_ENV
+          else
+            echo "build_tag=${{ github.event.inputs.build_type }}" >> $GITHUB_ENV
+          fi
+
+      # 新增步骤：下载并解压指定版本的代码
+      - name: Download and extract ws-scrcpy
+        run: |
+          mkdir -p dist
+          wget https://github.com/NetrisTV/ws-scrcpy/archive/refs/tags/${{ env.build_tag }}.tar.gz -O dist/ws-scrcpy.tar.gz
+          tar -xzf dist/ws-scrcpy.tar.gz -C dist
+
+      # 拉取私有仓库代码（使用 GitHub PAT）
+      - name: Pull project code
+        env:
+          REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+        run: |
+          git clone https://$REPO_ACCESS_TOKEN@$REPO_URL $REPO_PATH
+
+      # 新增步骤：拷贝 Dockerfile 到 dist 目录
+      - name: Copy Dockerfile to dist directory
+        run: |
+          cp $REPO_PATH/ws-scrcpy/Dockerfile dist/
+
+      # 设置 Docker 构建环境
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      # 登录 DockerHub
+      - name: Login to DockerHub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      # 新增步骤：检查 Docker Hub 上的镜像标签是否存在
+      - name: Check if Docker Hub image tag exists
+        id: check_tag
+        run: |
+          if docker manifest inspect $IMAGE_NAME:${{ env.build_tag }} &> /dev/null; then
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+          fi
+      
+      # 构建
+      - name: Build App and push Docker image with tags
+        run: |
+          cd $REPO_PATH/ws-scrcpy
+          BUILD_TAGS="-t $IMAGE_NAME:dev"
+          if [[ "${{ steps.check_tag.outputs.tag_exists }}" == "false" ]]; then
+            BUILD_TAGS="$BUILD_TAGS -t $IMAGE_NAME:${{ env.build_tag }}"
+          fi
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            $BUILD_TAGS \
+            . --push
+            
