@@ -25,7 +25,8 @@ jobs:
       - name: Get tag based on build_type
         run: |
           if [[ "${{ github.event.inputs.build_type }}" == "latest" || "${{ github.event.inputs.build_type }}" == "" ]]; then
-            LATEST_TAG=$(git ls-remote --tags https://github.com/NetrisTV/ws-scrcpy.git | cut -d/ -f3 | sort -V | tail -n1)
+            # 修改获取最新tag的方式
+            LATEST_TAG=$(curl -s https://api.github.com/repos/NetrisTV/ws-scrcpy/releases/latest | grep '"tag_name":' | cut -d'"' -f4)
             echo "build_tag=${LATEST_TAG}" >> $GITHUB_ENV
           else
             echo "build_tag=${{ github.event.inputs.build_type }}" >> $GITHUB_ENV
