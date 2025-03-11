@@ -37,9 +37,9 @@ jobs:
       # 新增步骤：下载并解压指定版本的代码
       - name: Download and extract ws-scrcpy
         run: |
-          mkdir -p dist
-          wget https://github.com/NetrisTV/ws-scrcpy/archive/refs/tags/${{ env.build_tag }}.tar.gz -O dist/ws-scrcpy.tar.gz
-          tar -xzf dist/ws-scrcpy.tar.gz -C dist
+          mkdir -p out/dist
+          wget https://github.com/NetrisTV/ws-scrcpy/archive/refs/tags/${{ env.build_tag }}.tar.gz -O out/dist/ws-scrcpy.tar.gz
+          tar -xzf out/dist/ws-scrcpy.tar.gz -C out/dist
 
       # 拉取私有仓库代码（使用 GitHub PAT）
       - name: Pull project code
@@ -48,10 +48,11 @@ jobs:
         run: |
           git clone https://$REPO_ACCESS_TOKEN@$REPO_URL $REPO_PATH
 
-      # 新增步骤：拷贝 Dockerfile 到 dist 目录
-      - name: Copy Dockerfile to dist directory
+      # 新增步骤：拷贝 Dockerfile 到 out 目录
+      - name: Copy Dockerfile to out directory
         run: |
-          cp $REPO_PATH/ws-scrcpy/Dockerfile dist/
+          cp $REPO_PATH/ws-scrcpy/Dockerfile out/
+          tree out # 递归打印 out 目录下的文件
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
