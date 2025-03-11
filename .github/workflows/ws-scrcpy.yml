@@ -30,6 +30,8 @@ jobs:
           else
             echo "build_tag=${{ github.event.inputs.build_type }}" >> $GITHUB_ENV
           fi
+          # 打印 build_tag 的值
+          echo "build_tag 的值为: ${{ env.build_tag }}"
 
       # 新增步骤：下载并解压指定版本的代码
       - name: Download and extract ws-scrcpy
