@@ -37,9 +37,10 @@ jobs:
       # 新增步骤：下载并解压指定版本的代码
       - name: Download and extract ws-scrcpy
         run: |
-          mkdir -p out/dist
-          wget https://github.com/NetrisTV/ws-scrcpy/archive/refs/tags/${{ env.build_tag }}.tar.gz -O out/dist/ws-scrcpy.tar.gz
-          tar -xzf out/dist/ws-scrcpy.tar.gz -C out/dist
+          mkdir -p out
+          wget https://github.com/NetrisTV/ws-scrcpy/archive/refs/tags/${{ env.build_tag }}.tar.gz -O out/ws-scrcpy.tar.gz
+          # 修改解压目录为 out
+          tar -xzf out/ws-scrcpy.tar.gz -C out
 
       # 拉取私有仓库代码（使用 GitHub PAT）
       - name: Pull project code
