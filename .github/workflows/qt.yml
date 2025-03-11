@@ -32,7 +32,7 @@ jobs:
 
       - name: cp code
         run: |
-          cp -r ./QtScrcpyCore ./QtScrcpy/QtScrcpy/QtScrcpyCore && \
+          cp -r ./QtScrcpyCore/* ./QtScrcpy/QtScrcpy/QtScrcpyCore/ && \
           ls ./QtScrcpy/QtScrcpy/QtScrcpyCore && \
           cp ${REPO_PATH}/qt/Dockerfile ./QtScrcpy/Dockerfile
 
