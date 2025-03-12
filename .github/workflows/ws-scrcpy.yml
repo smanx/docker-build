@@ -40,8 +40,8 @@ jobs:
           mkdir -p ws-scrcpy
           git clone -b ${{ env.build_tag }} https://github.com/NetrisTV/ws-scrcpy.git ws-scrcpy
           cd ws-scrcpy
-          yarn
-          yarn dist
+          # yarn
+          # yarn dist
           # npm install node-gyp
 
       # 拉取私有仓库代码（使用 GitHub PAT）
