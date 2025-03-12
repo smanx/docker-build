@@ -39,10 +39,10 @@ jobs:
         run: |
           mkdir -p ws-scrcpy
           git clone -b ${{ env.build_tag }} https://github.com/NetrisTV/ws-scrcpy.git ws-scrcpy
-          cd ws-scrcpy
-          yarn
-          yarn dist
-          npm install node-gyp
+          # cd ws-scrcpy
+          # yarn
+          # yarn dist
+          # npm install node-gyp
 
       # 拉取私有仓库代码（使用 GitHub PAT）
       - name: Pull project code
@@ -55,7 +55,6 @@ jobs:
       - name: Copy Dockerfile to out directory
         run: |
           cp $REPO_PATH/ws-scrcpy/Dockerfile ws-scrcpy/
-          tree ws-scrcpy
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
