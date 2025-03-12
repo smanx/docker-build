@@ -50,7 +50,7 @@ jobs:
         run: |
           git clone https://$REPO_ACCESS_TOKEN@$REPO_URL $REPO_PATH
 
-      # 新增步骤：拷贝 Dockerfile 到 out 目录
+      # 新增步骤：拷贝 Dockerfile
       - name: Copy Dockerfile to out directory
         run: |
           cp $REPO_PATH/ws-scrcpy/Dockerfile ws-scrcpy/
