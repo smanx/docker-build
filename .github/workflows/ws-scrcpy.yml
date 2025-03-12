@@ -77,7 +77,7 @@ jobs:
       - name: Build App and push Docker image with tags
         run: |
           cd $REPO_PATH/ws-scrcpy
-          BUILD_TAGS="-t $IMAGE_NAME:dev"
+          BUILD_TAGS="-t $IMAGE_NAME:latest"
           if [[ "${{ steps.check_tag.outputs.tag_exists }}" == "false" ]]; then
             BUILD_TAGS="$BUILD_TAGS -t $IMAGE_NAME:${{ env.build_tag }}"
           fi
