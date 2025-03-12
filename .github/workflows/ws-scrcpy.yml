@@ -37,10 +37,11 @@ jobs:
       # 新增步骤：下载并解压指定版本的代码
       - name: Download and extract ws-scrcpy
         run: |
-          mkdir -p out
-          wget https://github.com/NetrisTV/ws-scrcpy/archive/refs/tags/${{ env.build_tag }}.tar.gz -O out/ws-scrcpy.tar.gz
-          # 修改解压目录为 out
-          tar -xzf out/ws-scrcpy.tar.gz -C out
+          mkdir -p ws-scrcpy
+          git clone -b ${{ env.build_tag }} https://github.com/NetrisTV/ws-scrcpy.git ws-scrcpy
+          cd ws-scrcpy
+          yarn
+          yarn dist
 
       # 拉取私有仓库代码（使用 GitHub PAT）
       - name: Pull project code
@@ -52,8 +53,8 @@ jobs:
       # 新增步骤：拷贝 Dockerfile 到 out 目录
       - name: Copy Dockerfile to out directory
         run: |
-          cp $REPO_PATH/ws-scrcpy/Dockerfile out/
-          tree out # 递归打印 out 目录下的文件
+          cp $REPO_PATH/ws-scrcpy/Dockerfile ws-scrcpy/
+          tree ws-scrcpy
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
@@ -76,7 +77,7 @@ jobs:
       # 构建
       - name: Build App and push Docker image with tags
         run: |
-          cd out
+          cd ws-scrcpy
           BUILD_TAGS="-t $IMAGE_NAME:latest"
           if [[ "${{ steps.check_tag.outputs.tag_exists }}" == "false" ]]; then
             BUILD_TAGS="-t $IMAGE_NAME:${{ env.build_tag }} $BUILD_TAGS"
