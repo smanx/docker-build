@@ -42,6 +42,7 @@ jobs:
           cd ws-scrcpy
           yarn
           yarn dist
+          npm install node-gyp
 
       # 拉取私有仓库代码（使用 GitHub PAT）
       - name: Pull project code
