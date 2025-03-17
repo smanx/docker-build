@@ -29,7 +29,7 @@ jobs:
         run: |
           if [[ "${{ github.event.inputs.build_type }}" == "latest" || "${{ github.event.inputs.build_type }}" == "" ]]; then
             # 修改获取最新tag的方式
-            LATEST_TAG=$(curl -s https://api.github.com/repos/${{env.CODE_GITHUB}}/releases/latest | grep '"tag_name":' | cut -d'"' -f4)
+            LATEST_TAG=$(curl -s https://api.github.com/repos/${{env.CODE_GITHUB}}/tags | jq -r '.[0].name')
             echo "BUILD_TAG=${LATEST_TAG}" >> $GITHUB_ENV
           else
             echo "BUILD_TAG=${{ github.event.inputs.build_type }}" >> $GITHUB_ENV
@@ -84,4 +84,3 @@ jobs:
             --platform linux/amd64,linux/arm64 \
             $BUILD_TAGS \
             . --push
-            
