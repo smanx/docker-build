@@ -53,9 +53,6 @@ jobs:
       - name: Copy file to out directory
         run: |
           cp $REPO_PATH/${{env.DOCKERFILE_PATH}}/* ${{env.CODE_PATH}}/
-          ls $REPO_PATH/${{env.DOCKERFILE_PATH}}/
-          echo "Copying files from $REPO_PATH/${{env.DOCKERFILE_PATH}} to ${{env.CODE_PATH}}"
-          ls -lah ${{env.CODE_PATH}}
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
