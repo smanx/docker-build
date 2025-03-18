@@ -49,10 +49,13 @@ jobs:
         run: |
           git clone https://$REPO_ACCESS_TOKEN@$REPO_URL $REPO_PATH
 
-      # 新增步骤：拷贝 Dockerfile
-      - name: Copy Dockerfile to out directory
+      # 新增步骤：拷贝 file
+      - name: Copy file to out directory
         run: |
           cp $REPO_PATH/${{env.DOCKERFILE_PATH}}/* ${{env.CODE_PATH}}/
+          ls $REPO_PATH/${{env.DOCKERFILE_PATH}}/
+          echo "Copying files from $REPO_PATH/${{env.DOCKERFILE_PATH}} to ${{env.CODE_PATH}}"
+          ls -lah ${{env.CODE_PATH}}
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
