@@ -53,6 +53,7 @@ jobs:
             for ((i=1; i<=$pull_count; i++)); do
               echo "Pull attempt $i for $image_name"
               docker pull "$image_name" > /dev/null 2>&1
+              docker rmi "$image_name" > /dev/null 2>&1
               
               # 只在最后一次循环时保存镜像到缓存
               if [ $i -eq $pull_count ]; then
