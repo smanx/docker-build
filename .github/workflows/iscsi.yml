@@ -6,8 +6,8 @@ on:
         description: 'Build type'
         required: true
         default: 'latest'
-  schedule:
-    - cron: '0 0 * * *'  # 每天的00:00触发
+  # schedule:
+  #   - cron: '0 0 * * *'  # 每天的00:00触发
   push:
     branches:
       - push-all
