@@ -2,8 +2,8 @@ name: Docker Multi Pull
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 */6 * * *'  # 每6小时运行一次
+  # schedule:
+  #   - cron: '0 */6 * * *'  # 每6小时运行一次
 
 jobs:
   pull-images:
