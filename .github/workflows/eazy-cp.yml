@@ -45,7 +45,7 @@ jobs:
       - name: Build App and push Docker image with tags
         run: |
           echo "Building and pushing Docker image"
-          ls
+          ls $REPO_PATH
           cd $REPO_PATH/$PROJECT_NAME
           BUILD_TAGS="-t $IMAGE_NAME:latest"
           docker buildx build \
