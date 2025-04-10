@@ -1,4 +1,4 @@
-name: eazy-cp build
+name: easy-cp build
 on:
   workflow_dispatch:
     inputs:
