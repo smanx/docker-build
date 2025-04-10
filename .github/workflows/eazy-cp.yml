@@ -41,7 +41,7 @@ jobs:
       # 构建
       - name: Build App and push Docker image with tags
         run: |
-          cd $PROJECT_NAME/$PROJECT_NAME
+          cd $REPO_PATH/$PROJECT_NAME
           BUILD_TAGS="-t $IMAGE_NAME:latest"
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
