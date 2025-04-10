@@ -16,8 +16,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      PROJECT_NAME: eazy-cp  # 项目名称
-      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/eazy-cp  # 镜像名称
+      PROJECT_NAME: easy-cp  # 项目名称
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/easy-cp  # 镜像名称
       REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
       REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
       build_tag: ""  # 新增：定义 build_tag 变量
@@ -45,7 +45,6 @@ jobs:
       - name: Build App and push Docker image with tags
         run: |
           echo "Building and pushing Docker image"
-          ls $REPO_PATH
           cd $REPO_PATH/$PROJECT_NAME
           BUILD_TAGS="-t $IMAGE_NAME:latest"
           docker buildx build \
