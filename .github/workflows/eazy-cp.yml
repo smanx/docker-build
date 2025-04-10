@@ -28,7 +28,8 @@ jobs:
         env:
           REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
         run: |
-          git clone https://$REPO_ACCESS_TOKEN@$REPO_URL $REPO_PATH
+          echo "Pulling project code from $REPO_URL"
+          git clone https://$REPO_ACCESS_TOKEN@$REPO_URL $REPO_PATH || { echo "Failed to clone repository"; exit 1; }
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
@@ -36,16 +37,18 @@ jobs:
 
       # 登录 DockerHub
       - name: Login to DockerHub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+        run: |
+          echo "Logging in to DockerHub"
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin || { echo "Failed to login to DockerHub"; exit 1; }
 
       # 构建
       - name: Build App and push Docker image with tags
         run: |
+          echo "Building and pushing Docker image"
           ls
           cd $REPO_PATH/$PROJECT_NAME
           BUILD_TAGS="-t $IMAGE_NAME:latest"
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             $BUILD_TAGS \
-            . --push
-            
+            . --push || { echo "Failed to build and push Docker image"; exit 1; }            
