@@ -30,11 +30,6 @@ jobs:
         run: |
           git clone https://$REPO_ACCESS_TOKEN@$REPO_URL $REPO_PATH
 
-      # 新增步骤：拷贝 Dockerfile
-      - name: Copy Dockerfile to out directory
-        run: |
-          cp -r $REPO_PATH/$PROJECT_NAME/ $PROJECT_NAME/
-
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
@@ -46,7 +41,7 @@ jobs:
       # 构建
       - name: Build App and push Docker image with tags
         run: |
-          cd $PROJECT_NAME
+          cd $PROJECT_NAME/$PROJECT_NAME
           BUILD_TAGS="-t $IMAGE_NAME:latest"
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
