@@ -34,7 +34,7 @@ jobs:
       - name: Build and push
         run: |
           cd $PROJECT_NAME
-          docker buildx build --platform linux/amd64,linux/arm64,linux/arm64/v8,linux/arm/v7,linux/arm/v5,linux/s390x,linux/ppc64le,linux/mips64le,linux/386 \
+          docker buildx build --platform linux/amd64,linux/arm64,linux/arm64/v8,linux/arm/v7,linux/arm/v5,linux/s390x,linux/ppc64le,linux/386 \
             --file $DOCKERFILE_NAME \
             -t $IMAGE_NAME:$(date +'%Y%m%d') \
             -t $IMAGE_NAME \
