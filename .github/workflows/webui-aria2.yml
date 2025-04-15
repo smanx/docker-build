@@ -1,4 +1,4 @@
-name: webui-aria build
+name: webui-aria2 build
 on:
   workflow_dispatch:
   schedule:
@@ -11,8 +11,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-        PROJECT_NAME: webui-aria  # 项目名称
-        IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/webui-aria  # 镜像名称
+        PROJECT_NAME: webui-aria2  # 项目名称
+        IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/webui-aria2  # 镜像名称
         REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
         REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
         DOCKERFILE_NAME: Dockerfile
