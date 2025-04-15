@@ -1,4 +1,4 @@
-name: Beszel build
+name: webui-aria build
 on:
   workflow_dispatch:
   schedule:
