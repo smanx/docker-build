@@ -32,6 +32,9 @@ jobs:
       # 构建Docker镜像（支持多平台）并推送到DockerHub
       - name: Build and push
         run: |
+          ls
+          echo $PROJECT_NAME
+          ls $PROJECT_NAME
           cd $PROJECT_NAME
           docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v8,linux/arm/v7,linux/arm/v6,linux/s390x,linux/ppc64le,linux/riscv64 \
             --file dockerfile \
