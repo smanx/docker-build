@@ -15,6 +15,7 @@ jobs:
         IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/webui-aria  # 镜像名称
         REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
         REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
+        DOCKERFILE_NAME: Dockerfile
     steps:
 
       - name: Pull code
@@ -32,12 +33,9 @@ jobs:
       # 构建Docker镜像（支持多平台）并推送到DockerHub
       - name: Build and push
         run: |
-          ls
-          echo $PROJECT_NAME
-          ls $PROJECT_NAME
           cd $PROJECT_NAME
           docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v8,linux/arm/v7,linux/arm/v6,linux/s390x,linux/ppc64le,linux/riscv64 \
-            --file dockerfile \
+            --file $DOCKERFILE_NAME \
             -t $IMAGE_NAME:$(date +'%Y%m%d') \
             -t $IMAGE_NAME \
             . --push
