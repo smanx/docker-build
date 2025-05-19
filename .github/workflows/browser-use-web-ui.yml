@@ -34,7 +34,7 @@ jobs:
       - name: Build and push
         run: |
           cd $REPO_PATH
-          docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v8,linux/arm/v7,linux/arm/v6 \
+          docker buildx build --platform linux/amd64,linux/arm64 \
             -t $IMAGE_NAME:$(date +'%Y%m%d') \
             -t $IMAGE_NAME \
             . --push
