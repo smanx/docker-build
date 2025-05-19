@@ -40,12 +40,12 @@ jobs:
         env:
           REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
         run: |
-          git clone https://${{ env.REPO_ACCESS_TOKEN }}@${{ env.REPO_URL}} ${{ env.GITHUB_PROJECT }}
+          git clone https://${{ env.REPO_ACCESS_TOKEN }}@${{ env.REPO_URL}} ${{ env.REPO_PATH }}
 
       # 新增步骤：下载并解压指定版本的代码
       - name: Download GITHUB_PROJECT
         run: |
-          git clone -b ${{ env.BUILD_TAG }} https://github.com/${{ env.GITHUB_PROJECT }}.git ${{ env.REPO_PATH }}
+          git clone -b ${{ env.BUILD_TAG }} https://github.com/${{ env.GITHUB_PROJECT }}.git ${{ env.GITHUB_PROJECT }}
 
       # 新增步骤：拷贝 file
       - name: Copy file to out directory
