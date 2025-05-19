@@ -39,14 +39,27 @@ jobs:
           echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
         shell: bash
 
+      # 新增步骤：检查 Docker Hub 上的镜像标签是否存在
+      - name: Check if Docker Hub image tag exists
+        id: check_tag
+        run: |
+          if docker manifest inspect ${{ env.IMAGE_NAME }}:${{ steps.n8n_version.outputs.latest_version }} &> /dev/null; then
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+          fi
+
       # 构建 Docker 镜像（支持多平台）并推送到 DockerHub
       - name: Build and push Docker image with tags
         run: |
           cd ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
           ls
           echo "latest_version:${{ steps.n8n_version.outputs.latest_version }}"
-          # docker buildx build \
-          #   --platform linux/amd64,linux/arm64 \
-          #   -t ${{ env.IMAGE_NAME }}:${{ steps.n8n_version.outputs.latest_version }} \
-          #   -t ${{ env.IMAGE_NAME }}:latest \
-          #   . --push
+          BUILD_TAGS="-t ${{ env.IMAGE_NAME }}:latest"
+          if [[ "${{ steps.check_tag.outputs.tag_exists }}" == "false" ]]; then
+            BUILD_TAGS="-t ${{ env.IMAGE_NAME }}:${{ steps.n8n_version.outputs.latest_version }} $BUILD_TAGS"
+          fi
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            $BUILD_TAGS \
+            . --push
