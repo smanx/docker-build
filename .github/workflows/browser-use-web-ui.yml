@@ -27,7 +27,7 @@ jobs:
         run: |
           if [[ "${{ github.event.inputs.build_type }}" == "latest" || "${{ github.event.inputs.build_type }}" == "" ]]; then
             # 修改获取最新tag的方式
-            LATEST_TAG=$(curl -s https://api.github.com/repos/${{GITHUB_PROJECT}}/releases/latest | grep '"tag_name":' | cut -d'"' -f4)
+            LATEST_TAG=$(curl -s https://api.github.com/repos/${{ env.GITHUB_PROJECT }}/releases/latest | grep '"tag_name":' | cut -d'"' -f4)
             echo "BUILD_TAG=${LATEST_TAG}" >> $GITHUB_ENV
           else
             echo "BUILD_TAG=${{ github.event.inputs.build_type }}" >> $GITHUB_ENV
@@ -38,7 +38,7 @@ jobs:
       # 新增步骤：下载并解压指定版本的代码
       - name: Download GITHUB_PROJECT
         run: |
-          git clone -b ${{ env.BUILD_TAG }} https://github.com/${{GITHUB_PROJECT}}.git ${{ env.REPO_PATH }}
+          git clone -b ${{ env.BUILD_TAG }} https://github.com/${{ env.GITHUB_PROJECT }}.git ${{ env.REPO_PATH }}
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
@@ -70,4 +70,3 @@ jobs:
             --platform linux/amd64,linux/arm64 \
             $BUILD_TAGS \
             . --push
-            
