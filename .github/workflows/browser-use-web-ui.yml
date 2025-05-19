@@ -28,12 +28,12 @@ jobs:
           if [[ "${{ github.event.inputs.build_type }}" == "latest" || "${{ github.event.inputs.build_type }}" == "" ]]; then
             # 修改获取最新tag的方式
             LATEST_TAG=$(curl -s https://api.github.com/repos/${{ env.GITHUB_PROJECT }}/releases/latest | grep '"tag_name":' | cut -d'"' -f4)
+            echo "Setting BUILD_TAG to: ${LATEST_TAG}"
             echo "BUILD_TAG=${LATEST_TAG}" >> $GITHUB_ENV
           else
+            echo "Setting BUILD_TAG to: ${{ github.event.inputs.build_type }}"
             echo "BUILD_TAG=${{ github.event.inputs.build_type }}" >> $GITHUB_ENV
           fi
-          # 打印 BUILD_TAG 的值
-          echo "BUILD_TAG 的值为: ${{ env.BUILD_TAG }}"
 
       # 新增步骤：下载并解压指定版本的代码
       - name: Download GITHUB_PROJECT
