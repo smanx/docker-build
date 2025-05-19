@@ -1,0 +1,50 @@
+name: n8n build
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # 每天的00:00触发
+  push:
+    branches:
+      - push-all
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/n8n
+      REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
+      REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
+      PROJECT_NAME: n8n
+    steps:
+      # 拉取私有仓库代码（使用 GitHub PAT）
+      - name: Pull project code
+        env:
+          REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+        run: |
+          git clone https://${{ env.REPO_ACCESS_TOKEN }}@${{ env.REPO_URL}} ${{ env.REPO_PATH }}
+
+      # 设置 Docker 构建环境
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      # 登录 DockerHub
+      - name: Login to DockerHub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      # 获取 n8n 最新版本号
+      - name: Get latest n8n version
+        id: n8n_version
+        run: |
+          LATEST_VERSION=$(yarn info n8n version --json | jq -r '.data')
+          echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+        shell: bash
+
+      # 构建 Docker 镜像（支持多平台）并推送到 DockerHub
+      # - name: Build and push Docker image with tags
+      #   run: |
+      #     cd ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
+      #     docker buildx build \
+      #       --platform linux/amd64,linux/arm64 \
+      #       -t ${{ env.IMAGE_NAME }}:${{ steps.n8n_version.outputs.latest_version }} \
+      #       -t ${{ env.IMAGE_NAME }}:latest \
+      #       . --push
