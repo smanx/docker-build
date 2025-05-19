@@ -50,6 +50,10 @@ jobs:
       # 新增步骤：拷贝 file
       - name: Copy file to out directory
         run: |
+          echo 'ls ${{ env.REPO_PATH }}'
+          ls ${{ env.REPO_PATH }}
+          echo 'ls ${{ env.GITHUB_PROJECT }}'
+          ls ${{ env.GITHUB_PROJECT }}
           cp ${{ env.REPO_PATH }}/${{ env.DOCKERFILE_PATH }} ${{ env.GITHUB_PROJECT }}/
 
       # 设置 Docker 构建环境
