@@ -53,12 +53,11 @@ jobs:
       - name: Build and push Docker image with tags
         run: |
           cd ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
-          ls
-          echo "latest_version:${{ steps.n8n_version.outputs.latest_version }}"
           BUILD_TAGS="-t ${{ env.IMAGE_NAME }}:latest"
           if [[ "${{ steps.check_tag.outputs.tag_exists }}" == "false" ]]; then
             BUILD_TAGS="-t ${{ env.IMAGE_NAME }}:${{ steps.n8n_version.outputs.latest_version }} $BUILD_TAGS"
           fi
+          echo "Build tags: $BUILD_TAGS"
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             $BUILD_TAGS \
