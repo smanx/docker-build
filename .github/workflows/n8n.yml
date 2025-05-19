@@ -40,11 +40,13 @@ jobs:
         shell: bash
 
       # 构建 Docker 镜像（支持多平台）并推送到 DockerHub
-      # - name: Build and push Docker image with tags
-      #   run: |
-      #     cd ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
-      #     docker buildx build \
-      #       --platform linux/amd64,linux/arm64 \
-      #       -t ${{ env.IMAGE_NAME }}:${{ steps.n8n_version.outputs.latest_version }} \
-      #       -t ${{ env.IMAGE_NAME }}:latest \
-      #       . --push
+      - name: Build and push Docker image with tags
+        run: |
+          cd ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
+          ls
+          echo ${{ steps.n8n_version.outputs.latest_version }}
+          # docker buildx build \
+          #   --platform linux/amd64,linux/arm64 \
+          #   -t ${{ env.IMAGE_NAME }}:${{ steps.n8n_version.outputs.latest_version }} \
+          #   -t ${{ env.IMAGE_NAME }}:latest \
+          #   . --push
