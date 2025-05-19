@@ -21,6 +21,7 @@ jobs:
       REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
       BUILD_TAG: ""  # 新增：定义 BUILD_TAG 变量
       GITHUB_PROJECT: "nezhahq/agent"
+      DOCKERFILE_PATH: "nezha-agent/Dockerfile"
 
     steps:
       - name: Get tag based on build_type
@@ -34,11 +35,22 @@ jobs:
             echo "Setting BUILD_TAG to: ${{ github.event.inputs.build_type }}"
             echo "BUILD_TAG=${{ github.event.inputs.build_type }}" >> $GITHUB_ENV
           fi
+      # 拉取私有仓库代码（使用 GitHub PAT）
+      - name: Pull project code
+        env:
+          REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+        run: |
+          git clone https://${{ env.REPO_ACCESS_TOKEN }}@${{ env.REPO_URL}} ${{ env.GITHUB_PROJECT }}
 
       # 新增步骤：下载并解压指定版本的代码
       - name: Download GITHUB_PROJECT
         run: |
           git clone -b ${{ env.BUILD_TAG }} https://github.com/${{ env.GITHUB_PROJECT }}.git ${{ env.REPO_PATH }}
+
+      # 新增步骤：拷贝 file
+      - name: Copy file to out directory
+        run: |
+          cp ${{ env.REPO_PATH }}/${{ env.DOCKERFILE_PATH }} ${{ env.GITHUB_PROJECT }}/
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
@@ -61,11 +73,13 @@ jobs:
       # 构建
       - name: Build App and push Docker image with tags
         run: |
-          cd ${{ env.REPO_PATH }}
+          cd ${{ env.GITHUB_PROJECT }}
+          ls
           BUILD_TAGS="-t $IMAGE_NAME:latest"
           if [[ "${{ steps.check_tag.outputs.tag_exists }}" == "false" ]]; then
             BUILD_TAGS="-t $IMAGE_NAME:${{ env.BUILD_TAG }} $BUILD_TAGS"
           fi
+          echo "Build tags: $BUILD_TAGS"
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             $BUILD_TAGS \
