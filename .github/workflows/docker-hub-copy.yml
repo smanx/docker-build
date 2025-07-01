@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       images:
-        description: '要同步的镜像的 JSON 数组，例如：["user/repo1", "user/repo2"]'
+        description: 'A JSON array of images to sync, e.g., ["user/repo1", "user/repo2"]'
         required: false
         default: '["ygkkk/argosb"]'
   schedule:
@@ -44,13 +44,7 @@ jobs:
           IMAGE_NAME=$(echo $SOURCE_IMAGE | cut -d'/' -f2)
           DESTINATION_IMAGE=${{ env.DESTINATION_USER }}/${IMAGE_NAME}
 
-          # 拉取源镜像的 manifest list
-          docker buildx imagetools create --dry-run $SOURCE_IMAGE > manifest.json
-
-          # 在 manifest 中将源镜像名称替换为目标镜像名称
-          # 这假设 manifest.json 中的源镜像名称可以直接替换。
-          # 对于更复杂的场景，可能需要适当的 JSON 解析工具。
-          sed -i "s|${SOURCE_IMAGE}|${DESTINATION_IMAGE}|g" manifest.json
-
-          # 将修改后的 manifest list 推送到目标
-          docker buildx imagetools create --file manifest.json $DESTINATION_IMAGE
+          # 使用 docker buildx imagetools create 命令直接复制多架构镜像
+          # 这个命令会拉取源镜像的 manifest list，然后为每个子镜像创建新的标签并推送到目标仓库，
+          # 最后创建并推送目标镜像的 manifest list。
+          docker buildx imagetools create --tag $DESTINATION_IMAGE $SOURCE_IMAGE
