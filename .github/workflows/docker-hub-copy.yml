@@ -1,0 +1,35 @@
+name: docker-hub-copy
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # 每天的00:00触发
+  push:
+    branches:
+      - push-all
+
+env:
+  DESTINATION_USER: smanx
+
+jobs:
+  copy-image:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image: [ygkkk/argosb] # 在这里添加您需要同步的镜像名，格式为 user/repository
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Pull, Tag and Push Docker Image
+        run: |
+          IMAGE_NAME=$(echo ${{ matrix.image }} | cut -d'/' -f2)
+          docker pull ${{ matrix.image }}
+          docker tag ${{ matrix.image }} ${{ env.DESTINATION_USER }}/${IMAGE_NAME}
+          docker push ${{ env.DESTINATION_USER }}/${IMAGE_NAME}
