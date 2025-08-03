@@ -1,4 +1,4 @@
-name: shell-crash build
+name: ShellCrash build
 on:
   workflow_dispatch:
   schedule:
@@ -36,7 +36,7 @@ jobs:
       # 构建Docker镜像（支持多平台）并推送到DockerHub
       - name: Build and push
         run: |
-          cd $PROJECT_NAME
+          cd $REPO_PATH/$PROJECT_NAME
           docker buildx build --platform linux/amd64,linux/arm64,linux/arm64/v8,linux/arm/v7,linux/arm/v5,linux/s390x,linux/ppc64le,linux/386 \
             --file $DOCKERFILE_NAME \
             -t $IMAGE_NAME:$(date +'%Y%m%d') \
