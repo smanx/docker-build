@@ -11,8 +11,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-        PROJECT_NAME: ShellCrash # 项目名称
-        IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/ShellCrash  # 镜像名称
+        PROJECT_NAME: shellcrash # 项目名称
+        IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/shellcrash  # 镜像名称
         REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
         REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
         DOCKERFILE_NAME: Dockerfile
