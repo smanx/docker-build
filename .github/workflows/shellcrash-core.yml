@@ -1,0 +1,48 @@
+name: ShellCrash-core build
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # 每天的00:00触发
+  push:
+    branches:
+      - push-all
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+        PROJECT_NAME: shellcrash # 项目名称
+        IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/shellcrash  # 镜像名称
+        REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
+        REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
+        DOCKERFILE_NAME: Dockerfile-core
+    steps:
+
+      # 拉取私有仓库代码（使用 GitHub PAT）
+      - name: Pull project code
+        env:
+          REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+        run: |
+          git clone https://$REPO_ACCESS_TOKEN@$REPO_URL $REPO_PATH
+
+      # 设置Docker构建环境
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      # 登录DockerHub
+      - name: Login to DockerHub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      # 构建Docker镜像（支持多平台）并推送到DockerHub
+      - name: Build and push
+        run: |
+          cd $REPO_PATH/$PROJECT_NAME
+          docker buildx build --platform linux/amd64,linux/arm64/v8,linux/386 \
+            --file $DOCKERFILE_NAME \
+            -t $IMAGE_NAME:code-$(date +'%Y%m%d') \
+            -t $IMAGE_NAME:code \
+            . --push
+      
+
+      
+
