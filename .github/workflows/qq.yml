@@ -61,11 +61,9 @@ jobs:
         if: steps.version.outputs.new_version != steps.version.outputs.old_version
         run: |
           VERSION="${{ steps.version.outputs.new_version }}"
-          cd $REPO_PATH/qq
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            --file Dockerfile \
-            -t $IMAGE_NAME:$VERSION \
-            -t $IMAGE_NAME \
-            . --push
+          # 为已存在的 dev 镜像添加新的标签并推送
+          docker tag $IMAGE_NAME:dev $IMAGE_NAME:$VERSION
+          docker tag $IMAGE_NAME:dev $IMAGE_NAME
+          docker push $IMAGE_NAME:$VERSION
+          docker push $IMAGE_NAME
           echo "Successfully pushed new version: $VERSION"
