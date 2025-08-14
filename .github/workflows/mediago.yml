@@ -64,6 +64,7 @@ jobs:
         run: |
           cd ${{env.CODE_PATH}}
           npm install -g pnpm
+          pnpm install --no-frozen-lockfile
           pnpm install
           pnpm run build:web
           BUILD_TAGS="-t $IMAGE_NAME:latest"
