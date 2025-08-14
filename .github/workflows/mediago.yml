@@ -63,6 +63,7 @@ jobs:
       - name: Build App and push Docker image with tags
         run: |
           cd ${{env.CODE_PATH}}
+          npm install -g pnpm
           pnpm install
           pnpm run build:web
           BUILD_TAGS="-t $IMAGE_NAME:latest"
