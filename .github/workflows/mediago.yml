@@ -1,0 +1,73 @@
+name: mediago build
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'latest'
+  schedule:
+    - cron: '0 0 * * *'  # 每天的00:00触发
+  push:
+    branches:
+      - push-all
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/mediago
+      REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
+      REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
+      BUILD_TAG: ""  # 新增：定义 BUILD_TAG 变量
+      CODE_GITHUB: "caorushizi/mediago"
+      CODE_PATH: "app"
+
+    steps:
+      - name: Get tag based on build_type
+        run: |
+          if [[ "${{ github.event.inputs.build_type }}" == "latest" || "${{ github.event.inputs.build_type }}" == "" ]]; then
+            # 修改获取最新tag的方式
+            LATEST_TAG=$(curl -s https://api.github.com/repos/${{env.CODE_GITHUB}}/tags | jq -r '.[0].name')
+            echo "LATEST_TAG 的值为: $LATEST_TAG"
+            echo "BUILD_TAG=${LATEST_TAG}" >> $GITHUB_ENV
+          else
+            echo "输入的 build_type 的值为: ${{ github.event.inputs.build_type }}"
+            echo "BUILD_TAG=${{ github.event.inputs.build_type }}" >> $GITHUB_ENV
+          fi
+
+      # 新增步骤：下载并解压指定版本的代码
+      - name: Download and extract
+        run: |
+          git clone -b ${{ env.BUILD_TAG }} https://github.com/${{env.CODE_GITHUB}}.git ${{env.CODE_PATH}}
+
+      # 设置 Docker 构建环境
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      # 登录 DockerHub
+      - name: Login to DockerHub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      # 新增步骤：检查 Docker Hub 上的镜像标签是否存在
+      - name: Check if Docker Hub image tag exists
+        id: check_tag
+        run: |
+          if docker manifest inspect $IMAGE_NAME:${{ env.BUILD_TAG }} &> /dev/null; then
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+          fi
+      
+      # 构建
+      - name: Build App and push Docker image with tags
+        run: |
+          cd ${{env.CODE_PATH}}
+          BUILD_TAGS="-t $IMAGE_NAME:latest"
+          if [[ "${{ steps.check_tag.outputs.tag_exists }}" == "false" ]]; then
+            BUILD_TAGS="-t $IMAGE_NAME:${{ env.BUILD_TAG }} $BUILD_TAGS"
+          fi
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            $BUILD_TAGS \
+            . --push
