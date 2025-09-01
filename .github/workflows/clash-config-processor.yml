@@ -1,0 +1,114 @@
+name: Process Clash Config
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_url:
+        description: 'Clash YAML configuration URL'
+        required: true
+        default: 'https://raw.githubusercontent.com/mahdibland/SSAggregator/master/sub/sub_merge_yaml.yml'
+
+jobs:
+  process_config:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyyaml requests
+
+    - name: Download Clash config
+      run: |
+        curl -o clash_config_raw.yml ${{ github.event.inputs.config_url }}
+      shell: bash
+
+    - name: Process and validate config
+      id: process_script
+      run: |
+        python - <<EOF
+        import yaml
+        import requests
+        import sys
+
+        input_file = "clash_config_raw.yml"
+        output_file = "clash_config_processed.yml"
+        
+        # Function to simulate health check (replace with actual logic)
+        def check_proxy_health(proxy_name, proxy_config):
+            print(f"Checking health for {proxy_name}...")
+            # !!! 实际的健康检查逻辑需要根据你的代理类型和测试方式来实现 !!!
+            # 例如，你可以尝试连接到一个测试网站，或者使用 Clash 的 API 进行检查
+            # 这里仅作示例，总是返回 True
+            # if "port" in proxy_config and "server" in proxy_config:
+            #     try:
+            #         # 这是一个非常简化的示例，仅检查是否能建立连接到服务器和端口
+            #         # 实际 Clash 代理的健康检查要复杂得多
+            #         # 你可能需要运行一个临时的 Clash 实例，并通过其 API 检查代理
+            #         # 或者直接测试代理是否能访问一个外部 URL
+            #         import socket
+            #         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            #         s.settimeout(5)
+            #         s.connect((proxy_config['server'], proxy_config['port']))
+            #         s.close()
+            #         print(f"Proxy {proxy_name} seems healthy (basic check).")
+            #         return True
+            #     except Exception as e:
+            #         print(f"Proxy {proxy_name} failed basic health check: {e}")
+            #         return False
+            # else:
+            #     print(f"Proxy {proxy_name} lacks necessary config for health check.")
+            #     return False
+            return True # Placeholder: Assume all are healthy for demonstration
+
+        try:
+            with open(input_file, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+
+            healthy_proxies = []
+            if 'proxies' in config:
+                for proxy in config['proxies']:
+                    proxy_name = proxy.get('name', 'unknown')
+                    if check_proxy_health(proxy_name, proxy):
+                        healthy_proxies.append(proxy)
+                    else:
+                        print(f"Excluding unhealthy proxy: {proxy_name}")
+            else:
+                print("No 'proxies' section found in the input YAML.")
+
+            if healthy_proxies:
+                config['proxies'] = healthy_proxies
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    yaml.dump(config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+                print(f"Processed configuration saved to {output_file}")
+                print(f"::set-output name=config_generated::true")
+            else:
+                print("No healthy proxies found or generated. Skipping output.")
+                print(f"::set-output name=config_generated::false")
+
+        except FileNotFoundError:
+            print(f"Error: {input_file} not found.")
+            sys.exit(1)
+        except yaml.YAMLError as e:
+            print(f"Error parsing YAML: {e}")
+            sys.exit(1)
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
+            sys.exit(1)
+EOF
+      shell: bash
+
+    - name: Upload processed config as artifact
+      uses: actions/upload-artifact@v4
+      if: steps.process_script.outputs.config_generated == 'true'
+      with:
+        name: clash-config-clean
+        path: clash_config_processed.yml
