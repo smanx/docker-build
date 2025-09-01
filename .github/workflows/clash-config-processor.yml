@@ -43,6 +43,18 @@ jobs:
             print("Error: CONFIG_URL environment variable is not set.")
             sys.exit(1)
 
+        # Function to set GitHub Action output variables
+        def set_github_output(name, value):
+            github_output_path = os.environ.get('GITHUB_OUTPUT')
+            if github_output_path:
+                with open(github_output_path, 'a') as f:
+                    f.write(f"{name}={value}\n")
+            else:
+                # Fallback for local testing or older GitHub Actions runner (highly unlikely now)
+                print(f"Warning: GITHUB_OUTPUT environment variable not found. Cannot set output for '{name}'.")
+                # This old method is deprecated but kept for extreme compatibility or logging
+                # print(f"::set-output name={name}::{value}")
+
         # Function to simulate health check (replace with actual logic)
         def check_proxy_health(proxy_name, proxy_config):
             print(f"Checking health for {proxy_name}...")
@@ -107,30 +119,36 @@ jobs:
                 with open(output_file, 'w', encoding='utf-8') as f:
                     yaml.dump(config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
                 print(f"Processed configuration saved to {output_file}")
-                # Set output for GitHub Actions
-                print(f"::set-output name=config_generated::true")
+                # Set output for GitHub Actions using the new method
+                set_github_output("config_generated", "true")
             else:
                 print("No healthy proxies found or generated. Skipping output.")
-                print(f"::set-output name=config_generated::false")
+                # Set output for GitHub Actions using the new method
+                set_github_output("config_generated", "false")
 
         except FileNotFoundError:
             print(f"Error: {input_file} not found after download.")
+            set_github_output("config_generated", "false")
             sys.exit(1)
         except requests.exceptions.RequestException as e:
             print(f"Error downloading config from {config_url}: {e}")
+            set_github_output("config_generated", "false")
             sys.exit(1)
         except yaml.YAMLError as e:
             print(f"Error parsing YAML: {e}")
+            set_github_output("config_generated", "false")
             sys.exit(1)
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
+            set_github_output("config_generated", "false")
             sys.exit(1)
       env:
         CONFIG_URL: ${{ github.event.inputs.config_url }} # Pass the input URL as an environment variable
-      shell: python # Explicitly use Python as the shell for this run step [2]
+      shell: python # Explicitly use Python as the shell for this run step
 
     - name: Upload processed config as artifact
       uses: actions/upload-artifact@v4
+      # Use the new output variable to decide whether to upload
       if: success() && steps.process_script.outputs.config_generated == 'true'
       with:
         name: clash-config-clean
