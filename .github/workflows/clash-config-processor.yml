@@ -79,27 +79,24 @@ jobs:
                 return False
 
             try:
-                # 使用 -c 4 发送4个ping包，-W 2 设置超时时间为2秒
-                # 使用 subprocess.run 更安全，且可以捕获输出和返回码
-                ping_command = ["ping", "-c", "4", "-W", "2", ip_address]
+                # *** 修改点：发送1个ping包，超时时间1秒 (-c 1 -W 1) ***
+                ping_command = ["ping", "-c", "1", "-W", "1", ip_address]
                 print(f"  Running ping: {' '.join(ping_command)}")
                 result = subprocess.run(
                     ping_command,
                     capture_output=True,
                     text=True,
-                    timeout=10 # 整个ping命令的超时时间
+                    timeout=5 # 整个ping命令的超时时间，略大于单个ping包超时
                 )
 
                 if result.returncode == 0:
                     print(f"  Ping to {ip_address} successful.")
-                    # 尝试从ping输出中提取丢包率和延迟
-                    loss_match = re.search(r'(\d+)% packet loss', result.stdout)
-                    time_match = re.search(r'min/avg/max/mdev = \d+\.\d+/(\d+\.\d+)/\d+\.\d+/\d+\.\d+ ms', result.stdout)
+                    # 尝试从ping输出中提取延迟 (注意：一个包可能没有丢包率统计)
+                    time_match = re.search(r'time=(\d+\.\d+)\s?ms', result.stdout)
                     
-                    packet_loss = loss_match.group(1) if loss_match else 'N/A'
-                    avg_time = time_match.group(1) if time_match else 'N/A'
+                    rtt_time = time_match.group(1) if time_match else 'N/A'
                     
-                    print(f"  Ping stats: Packet loss: {packet_loss}%, Avg RTT: {avg_time} ms.")
+                    print(f"  Ping stats: RTT: {rtt_time} ms.")
                 else:
                     print(f"  Ping to {ip_address} failed. Exit code: {result.returncode}")
                     print(f"  Ping stderr: {result.stderr.strip()}")
@@ -121,7 +118,7 @@ jobs:
                     target_port = int(server_port)
                     # 尝试建立TCP连接到代理服务器的指定端口
                     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                        s.settimeout(5) # 设置连接超时时间为5秒
+                        s.settimeout(1) # *** 修改点：设置连接超时时间为1秒 ***
                         print(f"  Attempting to connect to {ip_address}:{target_port}...")
                         s.connect((ip_address, target_port))
                         print(f"  Successfully connected to {ip_address}:{target_port}.")
