@@ -17,24 +17,24 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Node.js
-      uses: actions/setup-node@v4 # Changed to Node.js setup
+      uses: actions/setup-node@v4
       with:
-        node-version: '18.x' # Or a recent LTS version
-
-    - name: Install dependencies
-      run: |
-        npm install yaml axios # Install yaml and axios modules
+        node-version: '18.x'
 
     - name: Process and validate config
       id: process_script
+      # 注意：这里将 npm install 也放在了同一个 run 块中
+      # 这样可以确保 node_modules 在脚本执行前可用
       run: |
-        const fs = require('fs/promises'); // For file system operations (async)
+        npm install yaml axios
+
+        const fs = require('fs/promises');
         const path = require('path');
         const yaml = require('yaml');
         const axios = require('axios');
-        const { exec } = require('child_process'); // For ping command
-        const net = require('net'); // For TCP port check
-        const dns = require('dns/promises'); // For async DNS lookup
+        const { exec } = require('child_process');
+        const net = require('net');
+        const dns = require('dns/promises');
 
         const inputFileName = "clash_config_raw.yml";
         const outputFileName = "clash_config_processed.yml";
@@ -47,7 +47,6 @@ jobs:
           process.exit(1);
         }
 
-        // Function to set GitHub Action output variables
         function setGitHubOutput(name, value) {
           const githubOutputPath = process.env.GITHUB_OUTPUT;
           if (githubOutputPath) {
@@ -57,7 +56,6 @@ jobs:
           }
         }
 
-        // Function to perform health check (ping + port check)
         async function checkProxyHealth(proxyName, proxyConfig) {
           console.log(`Checking health for ${proxyName}...`);
 
@@ -81,12 +79,11 @@ jobs:
 
           // --- Step 1: Ping Check ---
           try {
-            // Using `exec` for simpler command execution, but `spawn` could be used for more fine-grained control
             const pingCommand = `ping -c 1 -W 1 ${ipAddress}`;
             console.log(`  Running ping: ${pingCommand}`);
 
             const { stdout, stderr } = await new Promise((resolve, reject) => {
-              exec(pingCommand, { timeout: 5000 }, (error, stdout, stderr) => { // 5 second timeout for the entire ping command
+              exec(pingCommand, { timeout: 5000 }, (error, stdout, stderr) => {
                 if (error) {
                   reject(error);
                 } else {
@@ -100,8 +97,6 @@ jobs:
               return false;
             }
 
-            // Check stdout for success message for Linux ping (different from Windows)
-            // Example: "1 packets transmitted, 1 received, 0% packet loss, time 0ms"
             const successMatch = stdout.match(/1 received/);
             if (successMatch) {
               console.log(`  Ping to ${ipAddress} successful.`);
@@ -135,7 +130,7 @@ jobs:
 
               return await new Promise((resolve) => {
                 const client = new net.Socket();
-                client.setTimeout(1000); // 1 second timeout for connection
+                client.setTimeout(1000);
 
                 client.once('connect', () => {
                   console.log(`  Successfully connected to ${ipAddress}:${targetPort}.`);
@@ -164,7 +159,7 @@ jobs:
             }
           } else {
             console.log(`  Proxy ${proxyName} has no 'port' information. Skipping port check.`);
-            return true; // If no port info and ping successful, consider it healthy
+            return true;
           }
         }
 
@@ -173,7 +168,6 @@ jobs:
           let apiSentSuccess = 'false';
 
           try {
-            // Download the config file
             console.log(`Downloading config from: ${configUrl}`);
             const response = await axios.get(configUrl);
             await fs.writeFile(inputFileName, response.data);
@@ -208,17 +202,16 @@ jobs:
               console.log("No healthy proxies found or generated. Skipping output.");
             }
 
-            // --- Send data to API interface ---
             if (finalYamlContent) {
               console.log(`Attempting to send processed YAML to ${targetApiUrl}...`);
               const headers = {'Content-Type': 'application/x-www-form-urlencoded'};
               const payload = new URLSearchParams({
                 key: 'V2RayAggregator',
                 value: finalYamlContent
-              }).toString(); // URLSearchParams to properly encode for application/x-www-form-urlencoded
+              }).toString();
 
               try {
-                const postResponse = await axios.post(targetApiUrl, payload, { headers, timeout: 10000 }); // 10 second timeout
+                const postResponse = await axios.post(targetApiUrl, payload, { headers, timeout: 10000 });
                 console.log(`Successfully posted data to ${targetApiUrl}.`);
                 console.log(`API Response Status: ${postResponse.status}`);
                 console.log(`API Response Body: ${postResponse.data}`);
@@ -236,7 +229,7 @@ jobs:
 
           } catch (error) {
             console.error(`An error occurred during config processing: ${error.stack}`);
-            process.exit(1); // Exit with a non-zero code to indicate failure
+            process.exit(1);
           } finally {
             setGitHubOutput("config_generated", configGenerated);
             setGitHubOutput("api_sent_success", apiSentSuccess);
@@ -247,7 +240,7 @@ jobs:
         
       env:
         CONFIG_URL: ${{ github.event.inputs.config_url }}
-      shell: node {0} # Use node as the shell interpreter
+      shell: node {0} # Explicitly set node as the shell interpreter
 
     - name: Upload processed config as artifact
       uses: actions/upload-artifact@v4
