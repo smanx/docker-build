@@ -1,4 +1,4 @@
-name: Process Clash Config
+name: Process Clash Config (Node.js)
 
 on:
   workflow_dispatch:
@@ -16,213 +16,238 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    - name: Set up Node.js
+      uses: actions/setup-node@v4 # Changed to Node.js setup
       with:
-        python-version: '3.x'
+        node-version: '18.x' # Or a recent LTS version
 
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install pyyaml requests
+        npm install yaml axios # Install yaml and axios modules
 
     - name: Process and validate config
       id: process_script
       run: |
-        import yaml
-        import requests
-        import sys
-        import os
-        import subprocess
-        import socket
-        import re
+        const fs = require('fs/promises'); // For file system operations (async)
+        const path = require('path');
+        const yaml = require('yaml');
+        const axios = require('axios');
+        const { exec } = require('child_process'); // For ping command
+        const net = require('net'); // For TCP port check
+        const dns = require('dns/promises'); // For async DNS lookup
 
-        input_file = "clash_config_raw.yml"
-        output_file = "clash_config_processed.yml"
-        # 定义目标API接口
-        target_api_url = "https://cache.smanx.xx.kg/set"
+        const inputFileName = "clash_config_raw.yml";
+        const outputFileName = "clash_config_processed.yml";
+        const targetApiUrl = "https://cache.smanx.xx.kg/set";
 
-        # Get the config URL from environment variable passed by GitHub Actions
-        config_url = os.environ.get('CONFIG_URL')
-        if not config_url:
-            print("Error: CONFIG_URL environment variable is not set.")
-            sys.exit(1)
+        const configUrl = process.env.CONFIG_URL;
 
-        # Function to set GitHub Action output variables (updated for GITHUB_OUTPUT)
-        def set_github_output(name, value):
-            github_output_path = os.environ.get('GITHUB_OUTPUT')
-            if github_output_path:
-                with open(github_output_path, 'a') as f:
-                    f.write(f"{name}={value}\n")
-            else:
-                print(f"Warning: GITHUB_OUTPUT environment variable not found. Cannot set output for '{name}'.")
+        if (!configUrl) {
+          console.error("Error: CONFIG_URL environment variable is not set.");
+          process.exit(1);
+        }
 
-        # Function to perform health check (ping + port check)
-        def check_proxy_health(proxy_name, proxy_config):
-            print(f"Checking health for {proxy_name}...")
-            
-            server_address = proxy_config.get('server')
-            server_port = proxy_config.get('port')
+        // Function to set GitHub Action output variables
+        function setGitHubOutput(name, value) {
+          const githubOutputPath = process.env.GITHUB_OUTPUT;
+          if (githubOutputPath) {
+            fs.appendFileSync(githubOutputPath, `${name}=${value}\n`);
+          } else {
+            console.warn(`Warning: GITHUB_OUTPUT environment variable not found. Cannot set output for '${name}'.`);
+          }
+        }
 
-            if not server_address:
-                print(f"  Proxy {proxy_name} has no 'server' address. Skipping health check.")
-                return False
+        // Function to perform health check (ping + port check)
+        async function checkProxyHealth(proxyName, proxyConfig) {
+          console.log(`Checking health for ${proxyName}...`);
 
-            # --- 步骤1: Ping 检查 ---
-            try:
-                ip_address = socket.gethostbyname(server_address)
-                print(f"  Resolved {server_address} to {ip_address}")
-            except socket.gaierror:
-                print(f"  Could not resolve server address '{server_address}'. Ping check failed.")
-                return False
+          const serverAddress = proxyConfig.server;
+          const serverPort = proxyConfig.port;
 
-            try:
-                ping_command = ["ping", "-c", "1", "-W", "1", ip_address]
-                print(f"  Running ping: {' '.join(ping_command)}")
-                result = subprocess.run(
-                    ping_command,
-                    capture_output=True,
-                    text=True,
-                    timeout=5
-                )
+          if (!serverAddress) {
+            console.log(`  Proxy ${proxyName} has no 'server' address. Skipping health check.`);
+            return false;
+          }
 
-                if result.returncode == 0:
-                    print(f"  Ping to {ip_address} successful.")
-                    time_match = re.search(r'time=(\d+\.\d+)\s?ms', result.stdout)
-                    rtt_time = time_match.group(1) if time_match else 'N/A'
-                    print(f"  Ping stats: RTT: {rtt_time} ms.")
-                else:
-                    print(f"  Ping to {ip_address} failed. Exit code: {result.returncode}")
-                    print(f"  Ping stderr: {result.stderr.strip()}")
-                    return False
+          let ipAddress;
+          try {
+            const addresses = await dns.lookup(serverAddress);
+            ipAddress = addresses.address;
+            console.log(`  Resolved ${serverAddress} to ${ipAddress}`);
+          } catch (error) {
+            console.log(`  Could not resolve server address '${serverAddress}'. Ping check failed.`);
+            return false;
+          }
 
-            except subprocess.TimeoutExpired:
-                print(f"  Ping command timed out for {ip_address}.")
-                return False
-            except FileNotFoundError:
-                print(f"  'ping' command not found. Cannot perform ping check.")
-                return False
-            except Exception as e:
-                print(f"  Error during ping check for {ip_address}: {e}")
-                return False
+          // --- Step 1: Ping Check ---
+          try {
+            // Using `exec` for simpler command execution, but `spawn` could be used for more fine-grained control
+            const pingCommand = `ping -c 1 -W 1 ${ipAddress}`;
+            console.log(`  Running ping: ${pingCommand}`);
 
-            # --- 步骤2: 端口连通性检查 ---
-            if server_port:
-                try:
-                    target_port = int(server_port)
-                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                        s.settimeout(1)
-                        print(f"  Attempting to connect to {ip_address}:{target_port}...")
-                        s.connect((ip_address, target_port))
-                        print(f"  Successfully connected to {ip_address}:{target_port}.")
-                        return True
-                except ValueError:
-                    print(f"  Invalid port '{server_port}' for proxy {proxy_name}. Skipping port check.")
-                    return False
-                except socket.timeout:
-                    print(f"  Connection to {ip_address}:{target_port} timed out. Port might be closed or blocked.")
-                    return False
-                except Exception as e:
-                    print(f"  Error connecting to port {target_port} on {ip_address}: {e}")
-                    return False
-            else:
-                print(f"  Proxy {proxy_name} has no 'port' information. Skipping port check.")
-                return True
-            
-            return True
-
-
-        try:
-            # Download the config file
-            print(f"Downloading config from: {config_url}")
-            response = requests.get(config_url)
-            response.raise_for_status()
-            with open(input_file, 'wb') as f:
-                f.write(response.content)
-
-            with open(input_file, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-
-            healthy_proxies = []
-            if 'proxies' in config and isinstance(config['proxies'], list):
-                for proxy in config['proxies']:
-                    proxy_name = proxy.get('name', 'unknown')
-                    if check_proxy_health(proxy_name, proxy):
-                        healthy_proxies.append(proxy)
-                    else:
-                        print(f"Excluding unhealthy proxy: {proxy_name}")
-            else:
-                print("No 'proxies' section or 'proxies' is not a list found in the input YAML.")
-
-            final_yaml_content = ""
-            if healthy_proxies:
-                config['proxies'] = healthy_proxies
-                with open(output_file, 'w', encoding='utf-8') as f:
-                    yaml.dump(config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
-                print(f"Processed configuration saved to {output_file}")
-                
-                # 读取最终处理后的YAML文件内容
-                with open(output_file, 'r', encoding='utf-8') as f:
-                    final_yaml_content = f.read()
-                
-                set_github_output("config_generated", "true")
-            else:
-                print("No healthy proxies found or generated. Skipping output.")
-                set_github_output("config_generated", "false")
-
-            # --- *** 新增部分：将数据发送到API接口 *** ---
-            if final_yaml_content: # 只有当有内容生成时才发送
-                print(f"Attempting to send processed YAML to {target_api_url}...")
-                headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-                # 注意：这里的数据是 'application/x-www-form-urlencoded' 格式
-                # key=V2RayAggregator&value=<yaml_content>
-                payload = {
-                    'key': 'V2RayAggregator',
-                    'value': final_yaml_content
+            const { stdout, stderr } = await new Promise((resolve, reject) => {
+              exec(pingCommand, { timeout: 5000 }, (error, stdout, stderr) => { // 5 second timeout for the entire ping command
+                if (error) {
+                  reject(error);
+                } else {
+                  resolve({ stdout, stderr });
                 }
-                
-                try:
-                    # 使用 requests.post 发送 POST 请求
-                    post_response = requests.post(target_api_url, data=payload, headers=headers, timeout=10)
-                    post_response.raise_for_status() # 对HTTP错误抛出异常
-                    print(f"Successfully posted data to {target_api_url}.")
-                    print(f"API Response Status: {post_response.status_code}")
-                    print(f"API Response Body: {post_response.text}")
-                    set_github_output("api_sent_success", "true")
-                except requests.exceptions.RequestException as e:
-                    print(f"Error sending data to API {target_api_url}: {e}")
-                    set_github_output("api_sent_success", "false")
-                except Exception as e:
-                    print(f"An unexpected error occurred during API call: {e}")
-                    set_github_output("api_sent_success", "false")
-            else:
-                print("No final YAML content to send to API.")
-                set_github_output("api_sent_success", "false")
-            # --- *** 新增部分结束 *** ---
+              });
+            });
 
-        except FileNotFoundError:
-            print(f"Error: {input_file} not found after download.")
-            set_github_output("config_generated", "false")
-            set_github_output("api_sent_success", "false")
-            sys.exit(1)
-        except requests.exceptions.RequestException as e:
-            print(f"Error downloading config from {config_url}: {e}")
-            set_github_output("config_generated", "false")
-            set_github_output("api_sent_success", "false")
-            sys.exit(1)
-        except yaml.YAMLError as e:
-            print(f"Error parsing YAML: {e}")
-            set_github_output("config_generated", "false")
-            set_github_output("api_sent_success", "false")
-            sys.exit(1)
-        except Exception as e:
-            print(f"An unexpected error occurred: {e}")
-            set_github_output("config_generated", "false")
-            set_github_output("api_sent_success", "false")
-            sys.exit(1)
+            if (stderr) {
+              console.log(`  Ping to ${ipAddress} failed. Stderr: ${stderr.trim()}`);
+              return false;
+            }
+
+            // Check stdout for success message for Linux ping (different from Windows)
+            // Example: "1 packets transmitted, 1 received, 0% packet loss, time 0ms"
+            const successMatch = stdout.match(/1 received/);
+            if (successMatch) {
+              console.log(`  Ping to ${ipAddress} successful.`);
+              const timeMatch = stdout.match(/time=(\d+\.\d+)\s?ms/);
+              const rttTime = timeMatch ? timeMatch[1] : 'N/A';
+              console.log(`  Ping stats: RTT: ${rttTime} ms.`);
+            } else {
+              console.log(`  Ping to ${ipAddress} failed. Stdout: ${stdout.trim()}`);
+              return false;
+            }
+
+          } catch (error) {
+            if (error.code === 'ETIMEDOUT' || error.killed && error.signal === 'SIGTERM') {
+              console.log(`  Ping command timed out for ${ipAddress}.`);
+            } else if (error.code === 'ENOENT') {
+              console.log(`  'ping' command not found. Cannot perform ping check.`);
+            } else {
+              console.log(`  Error during ping check for ${ipAddress}: ${error.message}`);
+            }
+            return false;
+          }
+
+          // --- Step 2: Port Connectivity Check ---
+          if (serverPort) {
+            try {
+              const targetPort = parseInt(serverPort, 10);
+              if (isNaN(targetPort)) {
+                console.log(`  Invalid port '${serverPort}' for proxy ${proxyName}. Skipping port check.`);
+                return false;
+              }
+
+              return await new Promise((resolve) => {
+                const client = new net.Socket();
+                client.setTimeout(1000); // 1 second timeout for connection
+
+                client.once('connect', () => {
+                  console.log(`  Successfully connected to ${ipAddress}:${targetPort}.`);
+                  client.end();
+                  resolve(true);
+                });
+
+                client.once('timeout', () => {
+                  console.log(`  Connection to ${ipAddress}:${targetPort} timed out. Port might be closed or blocked.`);
+                  client.destroy();
+                  resolve(false);
+                });
+
+                client.once('error', (err) => {
+                  console.log(`  Error connecting to port ${targetPort} on ${ipAddress}: ${err.message}`);
+                  client.destroy();
+                  resolve(false);
+                });
+
+                client.connect(targetPort, ipAddress);
+              });
+
+            } catch (error) {
+              console.log(`  Error during port check for ${ipAddress}:${serverPort}: ${error.message}`);
+              return false;
+            }
+          } else {
+            console.log(`  Proxy ${proxyName} has no 'port' information. Skipping port check.`);
+            return true; // If no port info and ping successful, consider it healthy
+          }
+        }
+
+        async function main() {
+          let configGenerated = 'false';
+          let apiSentSuccess = 'false';
+
+          try {
+            // Download the config file
+            console.log(`Downloading config from: ${configUrl}`);
+            const response = await axios.get(configUrl);
+            await fs.writeFile(inputFileName, response.data);
+            console.log(`Downloaded config to ${inputFileName}`);
+
+            const rawConfigContent = await fs.readFile(inputFileName, 'utf-8');
+            const config = yaml.parse(rawConfigContent);
+
+            const healthyProxies = [];
+            if (config.proxies && Array.isArray(config.proxies)) {
+              for (const proxy of config.proxies) {
+                const proxyName = proxy.name || 'unknown';
+                const isHealthy = await checkProxyHealth(proxyName, proxy);
+                if (isHealthy) {
+                  healthyProxies.push(proxy);
+                } else {
+                  console.log(`Excluding unhealthy proxy: ${proxyName}`);
+                }
+              }
+            } else {
+              console.log("No 'proxies' section or 'proxies' is not a list found in the input YAML.");
+            }
+
+            let finalYamlContent = "";
+            if (healthyProxies.length > 0) {
+              config.proxies = healthyProxies;
+              finalYamlContent = yaml.stringify(config);
+              await fs.writeFile(outputFileName, finalYamlContent, 'utf-8');
+              console.log(`Processed configuration saved to ${outputFileName}`);
+              configGenerated = 'true';
+            } else {
+              console.log("No healthy proxies found or generated. Skipping output.");
+            }
+
+            // --- Send data to API interface ---
+            if (finalYamlContent) {
+              console.log(`Attempting to send processed YAML to ${targetApiUrl}...`);
+              const headers = {'Content-Type': 'application/x-www-form-urlencoded'};
+              const payload = new URLSearchParams({
+                key: 'V2RayAggregator',
+                value: finalYamlContent
+              }).toString(); // URLSearchParams to properly encode for application/x-www-form-urlencoded
+
+              try {
+                const postResponse = await axios.post(targetApiUrl, payload, { headers, timeout: 10000 }); // 10 second timeout
+                console.log(`Successfully posted data to ${targetApiUrl}.`);
+                console.log(`API Response Status: ${postResponse.status}`);
+                console.log(`API Response Body: ${postResponse.data}`);
+                apiSentSuccess = 'true';
+              } catch (error) {
+                console.error(`Error sending data to API ${targetApiUrl}: ${error.message}`);
+                if (error.response) {
+                  console.error(`API Error Response Status: ${error.response.status}`);
+                  console.error(`API Error Response Body: ${error.response.data}`);
+                }
+              }
+            } else {
+              console.log("No final YAML content to send to API.");
+            }
+
+          } catch (error) {
+            console.error(`An error occurred during config processing: ${error.stack}`);
+            process.exit(1); // Exit with a non-zero code to indicate failure
+          } finally {
+            setGitHubOutput("config_generated", configGenerated);
+            setGitHubOutput("api_sent_success", apiSentSuccess);
+          }
+        }
+
+        main();
+        
       env:
         CONFIG_URL: ${{ github.event.inputs.config_url }}
-      shell: python
+      shell: node {0} # Use node as the shell interpreter
 
     - name: Upload processed config as artifact
       uses: actions/upload-artifact@v4
