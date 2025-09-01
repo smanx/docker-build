@@ -26,50 +26,68 @@ jobs:
         python -m pip install --upgrade pip
         pip install pyyaml requests
 
-    - name: Download Clash config
-      run: |
-        curl -o clash_config_raw.yml ${{ github.event.inputs.config_url }}
-      shell: bash
-
     - name: Process and validate config
       id: process_script
       run: |
-        python - <<EOF
         import yaml
         import requests
         import sys
+        import os
 
         input_file = "clash_config_raw.yml"
         output_file = "clash_config_processed.yml"
-        
+
+        # Get the config URL from environment variable passed by GitHub Actions
+        config_url = os.environ.get('CONFIG_URL')
+        if not config_url:
+            print("Error: CONFIG_URL environment variable is not set.")
+            sys.exit(1)
+
         # Function to simulate health check (replace with actual logic)
         def check_proxy_health(proxy_name, proxy_config):
             print(f"Checking health for {proxy_name}...")
             # !!! 实际的健康检查逻辑需要根据你的代理类型和测试方式来实现 !!!
             # 例如，你可以尝试连接到一个测试网站，或者使用 Clash 的 API 进行检查
-            # 这里仅作示例，总是返回 True
-            # if "port" in proxy_config and "server" in proxy_config:
+            # 这里的示例为了演示流程，直接返回 True，表示所有代理都“健康”。
+            #
+            # 真实世界的Clash代理健康检查通常涉及：
+            # 1. 下载并运行一个临时的Clash核心。
+            # 2. 将代理配置加载到该Clash实例。
+            # 3. 通过Clash的API（如果可用）或通过代理发起对外部可访问服务的请求。
+            #    例如，尝试连接到 'http://www.google.com/generate_204' 并检查响应。
+            # 4. 根据请求的成功与否、延迟等判断代理是否健康。
+            #
+            # 这通常会需要额外的步骤来下载Clash核心，并以守护进程模式运行它。
+            # 由于这超出了单个内联脚本的简单性，并且需要更多系统级别的操作，
+            # 故此处保持简化。
+            #
+            # 示例：通过尝试连接到代理服务器:端口进行一个非常基本的网络探测
+            # import socket
+            # if 'port' in proxy_config and 'server' in proxy_config:
             #     try:
-            #         # 这是一个非常简化的示例，仅检查是否能建立连接到服务器和端口
-            #         # 实际 Clash 代理的健康检查要复杂得多
-            #         # 你可能需要运行一个临时的 Clash 实例，并通过其 API 检查代理
-            #         # 或者直接测试代理是否能访问一个外部 URL
-            #         import socket
-            #         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            #         s.settimeout(5)
-            #         s.connect((proxy_config['server'], proxy_config['port']))
-            #         s.close()
-            #         print(f"Proxy {proxy_name} seems healthy (basic check).")
+            #         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            #             s.settimeout(5) # 设置超时
+            #             s.connect((proxy_config['server'], int(proxy_config['port'])))
+            #         print(f"Proxy {proxy_name} seems to connect (basic check).")
             #         return True
             #     except Exception as e:
-            #         print(f"Proxy {proxy_name} failed basic health check: {e}")
+            #         print(f"Proxy {proxy_name} failed basic connection check: {e}")
             #         return False
             # else:
-            #     print(f"Proxy {proxy_name} lacks necessary config for health check.")
+            #     print(f"Proxy {proxy_name} lacks necessary 'server' or 'port' for basic check.")
             #     return False
+            
             return True # Placeholder: Assume all are healthy for demonstration
 
+
         try:
+            # Download the config file
+            print(f"Downloading config from: {config_url}")
+            response = requests.get(config_url)
+            response.raise_for_status() # Raise an exception for HTTP errors
+            with open(input_file, 'wb') as f:
+                f.write(response.content)
+
             with open(input_file, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
 
@@ -89,13 +107,17 @@ jobs:
                 with open(output_file, 'w', encoding='utf-8') as f:
                     yaml.dump(config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
                 print(f"Processed configuration saved to {output_file}")
+                # Set output for GitHub Actions
                 print(f"::set-output name=config_generated::true")
             else:
                 print("No healthy proxies found or generated. Skipping output.")
                 print(f"::set-output name=config_generated::false")
 
         except FileNotFoundError:
-            print(f"Error: {input_file} not found.")
+            print(f"Error: {input_file} not found after download.")
+            sys.exit(1)
+        except requests.exceptions.RequestException as e:
+            print(f"Error downloading config from {config_url}: {e}")
             sys.exit(1)
         except yaml.YAMLError as e:
             print(f"Error parsing YAML: {e}")
@@ -103,12 +125,13 @@ jobs:
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
             sys.exit(1)
-EOF
-      shell: bash
+      env:
+        CONFIG_URL: ${{ github.event.inputs.config_url }} # Pass the input URL as an environment variable
+      shell: python # Explicitly use Python as the shell for this run step [2]
 
     - name: Upload processed config as artifact
       uses: actions/upload-artifact@v4
-      if: steps.process_script.outputs.config_generated == 'true'
+      if: success() && steps.process_script.outputs.config_generated == 'true'
       with:
         name: clash-config-clean
         path: clash_config_processed.yml
