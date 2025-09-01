@@ -33,12 +33,14 @@ jobs:
         import requests
         import sys
         import os
-        import subprocess # 用于运行 ping 命令
-        import socket     # 用于检查端口连通性
-        import re         # 用于提取 IP 地址
+        import subprocess
+        import socket
+        import re
 
         input_file = "clash_config_raw.yml"
         output_file = "clash_config_processed.yml"
+        # 定义目标API接口
+        target_api_url = "https://cache.smanx.xx.kg/set"
 
         # Get the config URL from environment variable passed by GitHub Actions
         config_url = os.environ.get('CONFIG_URL')
@@ -59,18 +61,14 @@ jobs:
         def check_proxy_health(proxy_name, proxy_config):
             print(f"Checking health for {proxy_name}...")
             
-            # 代理服务器地址
             server_address = proxy_config.get('server')
-            
-            # 代理端口（某些代理类型可能没有直接的 port 字段，但通常会有）
             server_port = proxy_config.get('port')
 
             if not server_address:
                 print(f"  Proxy {proxy_name} has no 'server' address. Skipping health check.")
                 return False
 
-            # --- 步骤1: Ping 检查 (仅检查 IP 层连通性) ---
-            # 尝试解析域名（如果 server_address 是域名）获取 IP
+            # --- 步骤1: Ping 检查 ---
             try:
                 ip_address = socket.gethostbyname(server_address)
                 print(f"  Resolved {server_address} to {ip_address}")
@@ -79,28 +77,24 @@ jobs:
                 return False
 
             try:
-                # *** 修改点：发送1个ping包，超时时间1秒 (-c 1 -W 1) ***
                 ping_command = ["ping", "-c", "1", "-W", "1", ip_address]
                 print(f"  Running ping: {' '.join(ping_command)}")
                 result = subprocess.run(
                     ping_command,
                     capture_output=True,
                     text=True,
-                    timeout=5 # 整个ping命令的超时时间，略大于单个ping包超时
+                    timeout=5
                 )
 
                 if result.returncode == 0:
                     print(f"  Ping to {ip_address} successful.")
-                    # 尝试从ping输出中提取延迟 (注意：一个包可能没有丢包率统计)
                     time_match = re.search(r'time=(\d+\.\d+)\s?ms', result.stdout)
-                    
                     rtt_time = time_match.group(1) if time_match else 'N/A'
-                    
                     print(f"  Ping stats: RTT: {rtt_time} ms.")
                 else:
                     print(f"  Ping to {ip_address} failed. Exit code: {result.returncode}")
                     print(f"  Ping stderr: {result.stderr.strip()}")
-                    return False # Ping失败直接返回False
+                    return False
 
             except subprocess.TimeoutExpired:
                 print(f"  Ping command timed out for {ip_address}.")
@@ -112,13 +106,12 @@ jobs:
                 print(f"  Error during ping check for {ip_address}: {e}")
                 return False
 
-            # --- 步骤2: 端口连通性检查 (针对有端口信息的代理) ---
+            # --- 步骤2: 端口连通性检查 ---
             if server_port:
                 try:
                     target_port = int(server_port)
-                    # 尝试建立TCP连接到代理服务器的指定端口
                     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                        s.settimeout(1) # *** 修改点：设置连接超时时间为1秒 ***
+                        s.settimeout(1)
                         print(f"  Attempting to connect to {ip_address}:{target_port}...")
                         s.connect((ip_address, target_port))
                         print(f"  Successfully connected to {ip_address}:{target_port}.")
@@ -134,9 +127,8 @@ jobs:
                     return False
             else:
                 print(f"  Proxy {proxy_name} has no 'port' information. Skipping port check.")
-                return True # 如果没有端口信息，且ping成功，则认为初步健康
-
-            # 如果既没有port信息，且 ping也成功，则返回 True
+                return True
+            
             return True
 
 
@@ -144,7 +136,7 @@ jobs:
             # Download the config file
             print(f"Downloading config from: {config_url}")
             response = requests.get(config_url)
-            response.raise_for_status() # Raise an exception for HTTP errors
+            response.raise_for_status()
             with open(input_file, 'wb') as f:
                 f.write(response.content)
 
@@ -152,7 +144,6 @@ jobs:
                 config = yaml.safe_load(f)
 
             healthy_proxies = []
-            # 确保 'proxies' 是一个列表，以防万一配置错误
             if 'proxies' in config and isinstance(config['proxies'], list):
                 for proxy in config['proxies']:
                     proxy_name = proxy.get('name', 'unknown')
@@ -163,31 +154,71 @@ jobs:
             else:
                 print("No 'proxies' section or 'proxies' is not a list found in the input YAML.")
 
+            final_yaml_content = ""
             if healthy_proxies:
                 config['proxies'] = healthy_proxies
                 with open(output_file, 'w', encoding='utf-8') as f:
                     yaml.dump(config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
                 print(f"Processed configuration saved to {output_file}")
+                
+                # 读取最终处理后的YAML文件内容
+                with open(output_file, 'r', encoding='utf-8') as f:
+                    final_yaml_content = f.read()
+                
                 set_github_output("config_generated", "true")
             else:
                 print("No healthy proxies found or generated. Skipping output.")
                 set_github_output("config_generated", "false")
 
+            # --- *** 新增部分：将数据发送到API接口 *** ---
+            if final_yaml_content: # 只有当有内容生成时才发送
+                print(f"Attempting to send processed YAML to {target_api_url}...")
+                headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+                # 注意：这里的数据是 'application/x-www-form-urlencoded' 格式
+                # key=V2RayAggregator&value=<yaml_content>
+                payload = {
+                    'key': 'V2RayAggregator',
+                    'value': final_yaml_content
+                }
+                
+                try:
+                    # 使用 requests.post 发送 POST 请求
+                    post_response = requests.post(target_api_url, data=payload, headers=headers, timeout=10)
+                    post_response.raise_for_status() # 对HTTP错误抛出异常
+                    print(f"Successfully posted data to {target_api_url}.")
+                    print(f"API Response Status: {post_response.status_code}")
+                    print(f"API Response Body: {post_response.text}")
+                    set_github_output("api_sent_success", "true")
+                except requests.exceptions.RequestException as e:
+                    print(f"Error sending data to API {target_api_url}: {e}")
+                    set_github_output("api_sent_success", "false")
+                except Exception as e:
+                    print(f"An unexpected error occurred during API call: {e}")
+                    set_github_output("api_sent_success", "false")
+            else:
+                print("No final YAML content to send to API.")
+                set_github_output("api_sent_success", "false")
+            # --- *** 新增部分结束 *** ---
+
         except FileNotFoundError:
             print(f"Error: {input_file} not found after download.")
             set_github_output("config_generated", "false")
+            set_github_output("api_sent_success", "false")
             sys.exit(1)
         except requests.exceptions.RequestException as e:
             print(f"Error downloading config from {config_url}: {e}")
             set_github_output("config_generated", "false")
+            set_github_output("api_sent_success", "false")
             sys.exit(1)
         except yaml.YAMLError as e:
             print(f"Error parsing YAML: {e}")
             set_github_output("config_generated", "false")
+            set_github_output("api_sent_success", "false")
             sys.exit(1)
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
             set_github_output("config_generated", "false")
+            set_github_output("api_sent_success", "false")
             sys.exit(1)
       env:
         CONFIG_URL: ${{ github.event.inputs.config_url }}
