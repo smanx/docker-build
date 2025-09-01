@@ -33,6 +33,9 @@ jobs:
         import requests
         import sys
         import os
+        import subprocess # 用于运行 ping 命令
+        import socket     # 用于检查端口连通性
+        import re         # 用于提取 IP 地址
 
         input_file = "clash_config_raw.yml"
         output_file = "clash_config_processed.yml"
@@ -43,53 +46,101 @@ jobs:
             print("Error: CONFIG_URL environment variable is not set.")
             sys.exit(1)
 
-        # Function to set GitHub Action output variables
+        # Function to set GitHub Action output variables (updated for GITHUB_OUTPUT)
         def set_github_output(name, value):
             github_output_path = os.environ.get('GITHUB_OUTPUT')
             if github_output_path:
                 with open(github_output_path, 'a') as f:
                     f.write(f"{name}={value}\n")
             else:
-                # Fallback for local testing or older GitHub Actions runner (highly unlikely now)
                 print(f"Warning: GITHUB_OUTPUT environment variable not found. Cannot set output for '{name}'.")
-                # This old method is deprecated but kept for extreme compatibility or logging
-                # print(f"::set-output name={name}::{value}")
 
-        # Function to simulate health check (replace with actual logic)
+        # Function to perform health check (ping + port check)
         def check_proxy_health(proxy_name, proxy_config):
             print(f"Checking health for {proxy_name}...")
-            # !!! 实际的健康检查逻辑需要根据你的代理类型和测试方式来实现 !!!
-            # 例如，你可以尝试连接到一个测试网站，或者使用 Clash 的 API 进行检查
-            # 这里的示例为了演示流程，直接返回 True，表示所有代理都“健康”。
-            #
-            # 真实世界的Clash代理健康检查通常涉及：
-            # 1. 下载并运行一个临时的Clash核心。
-            # 2. 将代理配置加载到该Clash实例。
-            # 3. 通过Clash的API（如果可用）或通过代理发起对外部可访问服务的请求。
-            #    例如，尝试连接到 'http://www.google.com/generate_204' 并检查响应。
-            # 4. 根据请求的成功与否、延迟等判断代理是否健康。
-            #
-            # 这通常会需要额外的步骤来下载Clash核心，并以守护进程模式运行它。
-            # 由于这超出了单个内联脚本的简单性，并且需要更多系统级别的操作，
-            # 故此处保持简化。
-            #
-            # 示例：通过尝试连接到代理服务器:端口进行一个非常基本的网络探测
-            # import socket
-            # if 'port' in proxy_config and 'server' in proxy_config:
-            #     try:
-            #         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            #             s.settimeout(5) # 设置超时
-            #             s.connect((proxy_config['server'], int(proxy_config['port'])))
-            #         print(f"Proxy {proxy_name} seems to connect (basic check).")
-            #         return True
-            #     except Exception as e:
-            #         print(f"Proxy {proxy_name} failed basic connection check: {e}")
-            #         return False
-            # else:
-            #     print(f"Proxy {proxy_name} lacks necessary 'server' or 'port' for basic check.")
-            #     return False
             
-            return True # Placeholder: Assume all are healthy for demonstration
+            # 代理服务器地址
+            server_address = proxy_config.get('server')
+            
+            # 代理端口（某些代理类型可能没有直接的 port 字段，但通常会有）
+            server_port = proxy_config.get('port')
+
+            if not server_address:
+                print(f"  Proxy {proxy_name} has no 'server' address. Skipping health check.")
+                return False
+
+            # --- 步骤1: Ping 检查 (仅检查 IP 层连通性) ---
+            # 尝试解析域名（如果 server_address 是域名）获取 IP
+            try:
+                ip_address = socket.gethostbyname(server_address)
+                print(f"  Resolved {server_address} to {ip_address}")
+            except socket.gaierror:
+                print(f"  Could not resolve server address '{server_address}'. Ping check failed.")
+                return False
+
+            try:
+                # 使用 -c 4 发送4个ping包，-W 2 设置超时时间为2秒
+                # 使用 subprocess.run 更安全，且可以捕获输出和返回码
+                ping_command = ["ping", "-c", "4", "-W", "2", ip_address]
+                print(f"  Running ping: {' '.join(ping_command)}")
+                result = subprocess.run(
+                    ping_command,
+                    capture_output=True,
+                    text=True,
+                    timeout=10 # 整个ping命令的超时时间
+                )
+
+                if result.returncode == 0:
+                    print(f"  Ping to {ip_address} successful.")
+                    # 尝试从ping输出中提取丢包率和延迟
+                    loss_match = re.search(r'(\d+)% packet loss', result.stdout)
+                    time_match = re.search(r'min/avg/max/mdev = \d+\.\d+/(\d+\.\d+)/\d+\.\d+/\d+\.\d+ ms', result.stdout)
+                    
+                    packet_loss = loss_match.group(1) if loss_match else 'N/A'
+                    avg_time = time_match.group(1) if time_match else 'N/A'
+                    
+                    print(f"  Ping stats: Packet loss: {packet_loss}%, Avg RTT: {avg_time} ms.")
+                else:
+                    print(f"  Ping to {ip_address} failed. Exit code: {result.returncode}")
+                    print(f"  Ping stderr: {result.stderr.strip()}")
+                    return False # Ping失败直接返回False
+
+            except subprocess.TimeoutExpired:
+                print(f"  Ping command timed out for {ip_address}.")
+                return False
+            except FileNotFoundError:
+                print(f"  'ping' command not found. Cannot perform ping check.")
+                return False
+            except Exception as e:
+                print(f"  Error during ping check for {ip_address}: {e}")
+                return False
+
+            # --- 步骤2: 端口连通性检查 (针对有端口信息的代理) ---
+            if server_port:
+                try:
+                    target_port = int(server_port)
+                    # 尝试建立TCP连接到代理服务器的指定端口
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        s.settimeout(5) # 设置连接超时时间为5秒
+                        print(f"  Attempting to connect to {ip_address}:{target_port}...")
+                        s.connect((ip_address, target_port))
+                        print(f"  Successfully connected to {ip_address}:{target_port}.")
+                        return True
+                except ValueError:
+                    print(f"  Invalid port '{server_port}' for proxy {proxy_name}. Skipping port check.")
+                    return False
+                except socket.timeout:
+                    print(f"  Connection to {ip_address}:{target_port} timed out. Port might be closed or blocked.")
+                    return False
+                except Exception as e:
+                    print(f"  Error connecting to port {target_port} on {ip_address}: {e}")
+                    return False
+            else:
+                print(f"  Proxy {proxy_name} has no 'port' information. Skipping port check.")
+                return True # 如果没有端口信息，且ping成功，则认为初步健康
+
+            # 如果既没有port信息，且 ping也成功，则返回 True
+            return True
 
 
         try:
@@ -104,7 +155,8 @@ jobs:
                 config = yaml.safe_load(f)
 
             healthy_proxies = []
-            if 'proxies' in config:
+            # 确保 'proxies' 是一个列表，以防万一配置错误
+            if 'proxies' in config and isinstance(config['proxies'], list):
                 for proxy in config['proxies']:
                     proxy_name = proxy.get('name', 'unknown')
                     if check_proxy_health(proxy_name, proxy):
@@ -112,18 +164,16 @@ jobs:
                     else:
                         print(f"Excluding unhealthy proxy: {proxy_name}")
             else:
-                print("No 'proxies' section found in the input YAML.")
+                print("No 'proxies' section or 'proxies' is not a list found in the input YAML.")
 
             if healthy_proxies:
                 config['proxies'] = healthy_proxies
                 with open(output_file, 'w', encoding='utf-8') as f:
                     yaml.dump(config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
                 print(f"Processed configuration saved to {output_file}")
-                # Set output for GitHub Actions using the new method
                 set_github_output("config_generated", "true")
             else:
                 print("No healthy proxies found or generated. Skipping output.")
-                # Set output for GitHub Actions using the new method
                 set_github_output("config_generated", "false")
 
         except FileNotFoundError:
@@ -143,12 +193,11 @@ jobs:
             set_github_output("config_generated", "false")
             sys.exit(1)
       env:
-        CONFIG_URL: ${{ github.event.inputs.config_url }} # Pass the input URL as an environment variable
-      shell: python # Explicitly use Python as the shell for this run step
+        CONFIG_URL: ${{ github.event.inputs.config_url }}
+      shell: python
 
     - name: Upload processed config as artifact
       uses: actions/upload-artifact@v4
-      # Use the new output variable to decide whether to upload
       if: success() && steps.process_script.outputs.config_generated == 'true'
       with:
         name: clash-config-clean
