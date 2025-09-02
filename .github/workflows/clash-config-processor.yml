@@ -28,9 +28,6 @@ jobs:
 
     - name: Process and validate config
       id: process_script
-      # 注意：这里的 | 符号表示将后续内容作为多行字符串传递给 shell。
-      # 重要的是，Python 代码的顶层缩进应该从该行的第一个非空白字符开始。
-      # Python 自身的代码块（函数、if、for等）再进行相应的缩进。
       run: |
         import yaml
         import requests
@@ -90,12 +87,18 @@ jobs:
             ping_successful = False
             rtt_time = "N/A"
             try:
-                ping_command = ["ping", "-c", "1", "-W", "1", ip_address]
+                # 明确指定ping命令路径，并使用更通用的参数
+                # -c 1: 发送1个包
+                # -W 1: 等待1秒超时
+                # -q: 静默输出，只显示摘要 (这不会影响捕获输出)
+                # sudo setcap cap_net_raw+ep /bin/ping 如果在非root用户下，可能需要此权限。
+                # 在GitHub Actions的ubuntu-latest环境中，ping通常应该可用。
+                ping_command = ["/bin/ping", "-c", "1", "-W", "1", ip_address] 
                 result = subprocess.run(
                     ping_command,
                     capture_output=True,
                     text=True,
-                    timeout=5
+                    timeout=5 # 整个ping命令的超时时间
                 )
 
                 if result.returncode == 0:
@@ -107,6 +110,11 @@ jobs:
                 else:
                     with print_lock:
                         print(f"[{thread_id}]   Ping to {ip_address} failed for {proxy_name}. Exit code: {result.returncode}.")
+                        # 打印ping命令的stderr和stdout以便诊断
+                        if result.stderr:
+                            print(f"[{thread_id}]     Ping stderr: {result.stderr.strip()}")
+                        if result.stdout:
+                            print(f"[{thread_id}]     Ping stdout: {result.stdout.strip()}")
                     return False, proxy
 
             except subprocess.TimeoutExpired:
@@ -115,7 +123,7 @@ jobs:
                 return False, proxy
             except FileNotFoundError:
                 with print_lock:
-                    print(f"[{thread_id}]   'ping' command not found. Cannot perform ping check for {proxy_name}.")
+                    print(f"[{thread_id}]   '/bin/ping' command not found. Cannot perform ping check for {proxy_name}.")
                 return False, proxy
             except Exception as e:
                 with print_lock:
@@ -127,7 +135,7 @@ jobs:
                 try:
                     target_port = int(server_port)
                     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                        s.settimeout(1)
+                        s.settimeout(1) # 端口连接超时
                         s.connect((ip_address, target_port))
                         with print_lock:
                             print(f"[{thread_id}]   Successfully connected to {ip_address}:{target_port} for {proxy_name}.")
@@ -178,7 +186,6 @@ jobs:
                     for future in as_completed(future_to_proxy):
                         try:
                             is_healthy, proxy_checked = future.result()
-                            proxy_name = proxy_checked.get('name', 'unknown')
                             if is_healthy:
                                 healthy_proxies.append(proxy_checked)
                         except Exception as exc:
