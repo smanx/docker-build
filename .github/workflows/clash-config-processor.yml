@@ -28,6 +28,9 @@ jobs:
 
     - name: Process and validate config
       id: process_script
+      # 注意：这里的 | 符号表示将后续内容作为多行字符串传递给 shell。
+      # 重要的是，Python 代码的顶层缩进应该从该行的第一个非空白字符开始。
+      # Python 自身的代码块（函数、if、for等）再进行相应的缩进。
       run: |
         import yaml
         import requests
@@ -36,7 +39,11 @@ jobs:
         import subprocess
         import socket
         import re
-        from concurrent.futures import ThreadPoolExecutor, as_completed # 新增导入
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading
+
+        # 定义一个简单的线程锁，用于控制打印，防止输出混乱
+        print_lock = threading.Lock() 
 
         input_file = "clash_config_raw.yml"
         output_file = "clash_config_processed.yml"
@@ -56,29 +63,34 @@ jobs:
                 print(f"Warning: GITHUB_OUTPUT environment variable not found. Cannot set output for '{name}'.")
 
         # Function to perform health check (ping + port check)
-        # 注意：这个函数现在需要返回代理配置本身和它的健康状态
         def check_proxy_health(proxy):
+            thread_id = threading.current_thread().name
             proxy_name = proxy.get('name', 'unknown')
-            print(f"Checking health for {proxy_name}...")
+            
+            with print_lock:
+                print(f"[{thread_id}] Checking health for {proxy_name}...")
             
             server_address = proxy.get('server')
             server_port = proxy.get('port')
 
             if not server_address:
-                print(f"  Proxy {proxy_name} has no 'server' address. Skipping health check.")
+                with print_lock:
+                    print(f"[{thread_id}]   Proxy {proxy_name} has no 'server' address. Skipping health check.")
+                return False, proxy
+
+            ip_address = None
+            try:
+                ip_address = socket.gethostbyname(server_address)
+            except socket.gaierror:
+                with print_lock:
+                    print(f"[{thread_id}]   Could not resolve server address '{server_address}'. Ping check failed for {proxy_name}.")
                 return False, proxy
 
             # --- 步骤1: Ping 检查 ---
-            try:
-                ip_address = socket.gethostbyname(server_address)
-                # print(f"  Resolved {server_address} to {ip_address}") # 多线程并行时减少日志输出
-            except socket.gaierror:
-                print(f"  Could not resolve server address '{server_address}'. Ping check failed for {proxy_name}.")
-                return False, proxy
-
+            ping_successful = False
+            rtt_time = "N/A"
             try:
                 ping_command = ["ping", "-c", "1", "-W", "1", ip_address]
-                # print(f"  Running ping: {' '.join(ping_command)}") # 多线程并行时减少日志输出
                 result = subprocess.run(
                     ping_command,
                     capture_output=True,
@@ -87,23 +99,27 @@ jobs:
                 )
 
                 if result.returncode == 0:
-                    # print(f"  Ping to {ip_address} successful for {proxy_name}.") # 多线程并行时减少日志输出
+                    ping_successful = True
                     time_match = re.search(r'time=(\d+\.\d+)\s?ms', result.stdout)
                     rtt_time = time_match.group(1) if time_match else 'N/A'
-                    # print(f"  Ping stats for {proxy_name}: RTT: {rtt_time} ms.") # 多线程并行时减少日志输出
+                    with print_lock:
+                        print(f"[{thread_id}]   Ping to {ip_address} successful for {proxy_name}. RTT: {rtt_time} ms.")
                 else:
-                    print(f"  Ping to {ip_address} failed for {proxy_name}. Exit code: {result.returncode}")
-                    # print(f"  Ping stderr for {proxy_name}: {result.stderr.strip()}")
+                    with print_lock:
+                        print(f"[{thread_id}]   Ping to {ip_address} failed for {proxy_name}. Exit code: {result.returncode}.")
                     return False, proxy
 
             except subprocess.TimeoutExpired:
-                print(f"  Ping command timed out for {ip_address} ({proxy_name}).")
+                with print_lock:
+                    print(f"[{thread_id}]   Ping command timed out for {ip_address} ({proxy_name}).")
                 return False, proxy
             except FileNotFoundError:
-                print(f"  'ping' command not found. Cannot perform ping check for {proxy_name}.")
+                with print_lock:
+                    print(f"[{thread_id}]   'ping' command not found. Cannot perform ping check for {proxy_name}.")
                 return False, proxy
             except Exception as e:
-                print(f"  Error during ping check for {ip_address} ({proxy_name}): {e}")
+                with print_lock:
+                    print(f"[{thread_id}]   Error during ping check for {ip_address} ({proxy_name}): {e}")
                 return False, proxy
 
             # --- 步骤2: 端口连通性检查 ---
@@ -112,24 +128,30 @@ jobs:
                     target_port = int(server_port)
                     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                         s.settimeout(1)
-                        # print(f"  Attempting to connect to {ip_address}:{target_port} ({proxy_name})...") # 多线程并行时减少日志输出
                         s.connect((ip_address, target_port))
-                        # print(f"  Successfully connected to {ip_address}:{target_port} ({proxy_name}).") # 多线程并行时减少日志输出
+                        with print_lock:
+                            print(f"[{thread_id}]   Successfully connected to {ip_address}:{target_port} for {proxy_name}.")
                         return True, proxy
                 except ValueError:
-                    print(f"  Invalid port '{server_port}' for proxy {proxy_name}. Skipping port check.")
+                    with print_lock:
+                        print(f"[{thread_id}]   Invalid port '{server_port}' for proxy {proxy_name}. Skipping port check.")
                     return False, proxy
                 except socket.timeout:
-                    print(f"  Connection to {ip_address}:{target_port} timed out for {proxy_name}. Port might be closed or blocked.")
+                    with print_lock:
+                        print(f"[{thread_id}]   Connection to {ip_address}:{target_port} timed out for {proxy_name}. Port might be closed or blocked.")
                     return False, proxy
                 except Exception as e:
-                    print(f"  Error connecting to port {target_port} on {ip_address} ({proxy_name}): {e}")
+                    with print_lock:
+                        print(f"[{thread_id}]   Error connecting to port {target_port} on {ip_address} ({proxy_name}): {e}")
                     return False, proxy
-            else:
-                # print(f"  Proxy {proxy_name} has no 'port' information. Skipping port check.") # 多线程并行时减少日志输出
+            elif ping_successful:
+                with print_lock:
+                    print(f"[{thread_id}]   Proxy {proxy_name} has no 'port' information. Ping was successful.")
                 return True, proxy
             
-            return True, proxy
+            with print_lock:
+                print(f"[{thread_id}]   Proxy {proxy_name} failed all checks.")
+            return False, proxy
 
 
         try:
@@ -147,22 +169,22 @@ jobs:
             if 'proxies' in config and isinstance(config['proxies'], list):
                 proxies_to_check = config['proxies']
                 
-                # --- *** 新增部分：多线程执行健康检查 *** ---
-                max_workers = 10 # 根据需要调整并发线程数
+                max_workers = 100
                 print(f"Starting health checks with {max_workers} threads for {len(proxies_to_check)} proxies...")
+                
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    # 提交所有代理到线程池，并存储 Future 对象
                     future_to_proxy = {executor.submit(check_proxy_health, proxy): proxy for proxy in proxies_to_check}
                     
                     for future in as_completed(future_to_proxy):
-                        is_healthy, proxy_checked = future.result()
-                        proxy_name = proxy_checked.get('name', 'unknown')
-                        if is_healthy:
-                            healthy_proxies.append(proxy_checked)
-                            print(f"  Proxy {proxy_name} is healthy.")
-                        else:
-                            print(f"  Excluding unhealthy proxy: {proxy_name}")
-                # --- *** 多线程执行结束 *** ---
+                        try:
+                            is_healthy, proxy_checked = future.result()
+                            proxy_name = proxy_checked.get('name', 'unknown')
+                            if is_healthy:
+                                healthy_proxies.append(proxy_checked)
+                        except Exception as exc:
+                            proxy_name_of_failed_task = future_to_proxy[future].get('name', 'unknown')
+                            with print_lock:
+                                print(f"Proxy {proxy_name_of_failed_task} generated an exception: {exc}")
                 
             else:
                 print("No 'proxies' section or 'proxies' is not a list found in the input YAML.")
