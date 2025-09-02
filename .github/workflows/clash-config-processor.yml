@@ -7,6 +7,11 @@ on:
         description: 'Clash YAML configuration URL'
         required: true
         default: 'https://raw.githubusercontent.com/mahdibland/SSAggregator/master/sub/sub_merge_yaml.yml'
+      max_workers_input: # 新增的输入变量
+        description: 'Maximum number of concurrent workers (threads) for proxy health checks'
+        required: false # 设置为非必需，因为有默认值
+        default: '100' # 默认值是100
+        type: string # 输入类型为字符串
 
 jobs:
   process_config:
@@ -25,9 +30,6 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyyaml requests
-        # --- 新增：安装 fping ---
-        sudo apt-get update
-        sudo apt-get install -y fping
 
     - name: Process and validate config
       id: process_script
@@ -42,6 +44,7 @@ jobs:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import threading
 
+        # 定义一个简单的线程锁，用于控制打印，防止输出混乱
         print_lock = threading.Lock() 
 
         input_file = "clash_config_raw.yml"
@@ -53,6 +56,24 @@ jobs:
             print("Error: CONFIG_URL environment variable is not set.")
             sys.exit(1)
 
+        # 获取 max_workers_input 环境变量，并转换为整数
+        # 如果获取不到或者转换失败，则使用默认值 100
+        max_workers = 100 # 默认值
+        try:
+            input_max_workers = os.environ.get('MAX_WORKERS_INPUT')
+            if input_max_workers:
+                max_workers = int(input_max_workers)
+                if max_workers <= 0: # 确保工作线程数至少为1
+                    print(f"Warning: Invalid max_workers_input '{input_max_workers}'. Using default 100.")
+                    max_workers = 100
+            else:
+                print(f"Warning: MAX_WORKERS_INPUT not provided. Using default 100.")
+        except ValueError:
+            print(f"Warning: Could not convert MAX_WORKERS_INPUT '{input_max_workers}' to integer. Using default 100.")
+
+        print(f"Using max_workers for health checks: {max_workers}")
+
+
         def set_github_output(name, value):
             github_output_path = os.environ.get('GITHUB_OUTPUT')
             if github_output_path:
@@ -61,6 +82,7 @@ jobs:
             else:
                 print(f"Warning: GITHUB_OUTPUT environment variable not found. Cannot set output for '{name}'.")
 
+        # Function to perform health check (ping + port check)
         def check_proxy_health(proxy):
             thread_id = threading.current_thread().name
             proxy_name = proxy.get('name', 'unknown')
@@ -84,54 +106,43 @@ jobs:
                     print(f"[{thread_id}]   Could not resolve server address '{server_address}'. Ping check failed for {proxy_name}.")
                 return False, proxy
 
-            # --- 步骤1: fping 检查 ---
+            # --- 步骤1: Ping 检查 ---
             ping_successful = False
             rtt_time = "N/A"
             try:
-                # 使用 fping 命令
-                # -c 1: 发送1个包
-                # -t 500: 超时500毫秒 (0.5秒)
-                # -q: 静默输出，只显示结果摘要
-                fping_command = ["/usr/bin/fping", "-c", "1", "-t", "500", "-q", ip_address] 
+                ping_command = ["ping", "-c", "1", "-W", "1", ip_address]
                 result = subprocess.run(
-                    fping_command,
+                    ping_command,
                     capture_output=True,
                     text=True,
-                    timeout=5 # 整个fping命令的超时时间
+                    timeout=5
                 )
 
-                # fping 的返回码：0表示所有目标可达，1表示部分可达，2表示全部不可达
                 if result.returncode == 0:
                     ping_successful = True
-                    # fping的输出格式可能不同，这里假设我们需要解析类似于 "target : x.xx ms" 的RTT
-                    # 由于-q参数，stdout可能是空的，但如果成功，也就不需要解析了
-                    # 如果需要更精确的RTT，可以去掉-q，然后解析stdout
-                    # 简化处理：只要返回0就认为是成功
+                    time_match = re.search(r'time=(\d+\.\d+)\s?ms', result.stdout)
+                    rtt_time = time_match.group(1) if time_match else 'N/A'
                     with print_lock:
-                        print(f"[{thread_id}]   Fping to {ip_address} successful for {proxy_name}.")
+                        print(f"[{thread_id}]   Ping to {ip_address} successful for {proxy_name}. RTT: {rtt_time} ms.")
                 else:
                     with print_lock:
-                        print(f"[{thread_id}]   Fping to {ip_address} failed for {proxy_name}. Exit code: {result.returncode}.")
-                        if result.stderr:
-                            print(f"[{thread_id}]     Fping stderr: {result.stderr.strip()}")
-                        if result.stdout:
-                            print(f"[{thread_id}]     Fping stdout: {result.stdout.strip()}")
+                        print(f"[{thread_id}]   Ping to {ip_address} failed for {proxy_name}. Exit code: {result.returncode}.")
                     return False, proxy
 
             except subprocess.TimeoutExpired:
                 with print_lock:
-                    print(f"[{thread_id}]   Fping command timed out for {ip_address} ({proxy_name}).")
+                    print(f"[{thread_id}]   Ping command timed out for {ip_address} ({proxy_name}).")
                 return False, proxy
             except FileNotFoundError:
                 with print_lock:
-                    print(f"[{thread_id}]   '/usr/bin/fping' command not found. Cannot perform ping check for {proxy_name}.")
+                    print(f"[{thread_id}]   'ping' command not found. Cannot perform ping check for {proxy_name}.")
                 return False, proxy
             except Exception as e:
                 with print_lock:
-                    print(f"[{thread_id}]   Error during fping check for {ip_address} ({proxy_name}): {e}")
+                    print(f"[{thread_id}]   Error during ping check for {ip_address} ({proxy_name}): {e}")
                 return False, proxy
 
-            # --- 步骤2: 端口连通性检查 --- (这部分保持不变)
+            # --- 步骤2: 端口连通性检查 ---
             if server_port:
                 try:
                     target_port = int(server_port)
@@ -163,4 +174,108 @@ jobs:
             return False, proxy
 
 
-        # ... (以下部分保持不变，与方案一相同)
+        try:
+            print(f"Downloading config from: {config_url}")
+            response = requests.get(config_url)
+            response.raise_for_status()
+            with open(input_file, 'wb') as f:
+                f.write(response.content)
+
+            with open(input_file, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+
+            healthy_proxies = []
+            
+            if 'proxies' in config and isinstance(config['proxies'], list):
+                proxies_to_check = config['proxies']
+                
+                print(f"Starting health checks with {max_workers} threads for {len(proxies_to_check)} proxies...")
+                
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    future_to_proxy = {executor.submit(check_proxy_health, proxy): proxy for proxy in proxies_to_check}
+                    
+                    for future in as_completed(future_to_proxy):
+                        try:
+                            is_healthy, proxy_checked = future.result()
+                            proxy_name = proxy_checked.get('name', 'unknown')
+                            if is_healthy:
+                                healthy_proxies.append(proxy_checked)
+                        except Exception as exc:
+                            proxy_name_of_failed_task = future_to_proxy[future].get('name', 'unknown')
+                            with print_lock:
+                                print(f"Proxy {proxy_name_of_failed_task} generated an exception: {exc}")
+                
+            else:
+                print("No 'proxies' section or 'proxies' is not a list found in the input YAML.")
+
+            final_yaml_content = ""
+            if healthy_proxies:
+                config['proxies'] = healthy_proxies
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    yaml.dump(config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+                print(f"Processed configuration saved to {output_file}")
+                
+                with open(output_file, 'r', encoding='utf-8') as f:
+                    final_yaml_content = f.read()
+                
+                set_github_output("config_generated", "true")
+            else:
+                print("No healthy proxies found or generated. Skipping output.")
+                set_github_output("config_generated", "false")
+
+            if final_yaml_content:
+                print(f"Attempting to send processed YAML to {target_api_url}...")
+                headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+                payload = {
+                    'key': 'V2RayAggregator',
+                    'value': final_yaml_content
+                }
+                
+                try:
+                    post_response = requests.post(target_api_url, data=payload, headers=headers, timeout=10)
+                    post_response.raise_for_status()
+                    print(f"Successfully posted data to {target_api_url}.")
+                    print(f"API Response Status: {post_response.status_code}")
+                    print(f"API Response Body: {post_response.text}")
+                    set_github_output("api_sent_success", "true")
+                except requests.exceptions.RequestException as e:
+                    print(f"Error sending data to API {target_api_url}: {e}")
+                    set_github_output("api_sent_success", "false")
+                except Exception as e:
+                    print(f"An unexpected error occurred during API call: {e}")
+                    set_github_output("api_sent_success", "false")
+            else:
+                print("No final YAML content to send to API.")
+                set_github_output("api_sent_success", "false")
+
+        except FileNotFoundError:
+            print(f"Error: {input_file} not found after download.")
+            set_github_output("config_generated", "false")
+            set_github_output("api_sent_success", "false")
+            sys.exit(1)
+        except requests.exceptions.RequestException as e:
+            print(f"Error downloading config from {config_url}: {e}")
+            set_github_output("config_generated", "false")
+            set_github_output("api_sent_success", "false")
+            sys.exit(1)
+        except yaml.YAMLError as e:
+            print(f"Error parsing YAML: {e}")
+            set_github_output("config_generated", "false")
+            set_github_output("api_sent_success", "false")
+            sys.exit(1)
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
+            set_github_output("config_generated", "false")
+            set_github_output("api_sent_success", "false")
+            sys.exit(1)
+      env:
+        CONFIG_URL: ${{ github.event.inputs.config_url }}
+        MAX_WORKERS_INPUT: ${{ github.event.inputs.max_workers_input }} # 将输入传递给环境变量
+      shell: python
+
+    - name: Upload processed config as artifact
+      uses: actions/upload-artifact@v4
+      if: success() && steps.process_script.outputs.config_generated == 'true'
+      with:
+        name: clash-config-clean
+        path: clash_config_processed.yml
