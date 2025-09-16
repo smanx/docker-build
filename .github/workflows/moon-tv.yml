@@ -26,20 +26,24 @@ jobs:
     steps:
       - name: Get tag based on build_type
         run: |
-          if [[ "${{ github.event.inputs.build_type }}" == "latest" || "${{ github.event.inputs.build_type }}" == "" ]]; then
-            # 修改获取最新tag的方式
+          BUILD_TYPE="${{ github.event.inputs.build_type }}"
+          if [[ "$BUILD_TYPE" == "latest" || "$BUILD_TYPE" == "" ]]; then
+            # 获取最新tag
             LATEST_TAG=$(curl -s https://api.github.com/repos/${{env.CODE_GITHUB}}/tags | jq -r '.[0].name')
-            echo "LATEST_TAG 的值为: $LATEST_TAG"
-            echo "BUILD_TAG=${LATEST_TAG}" >> $GITHUB_ENV
+            echo "BUILD_TAG=$LATEST_TAG" >> $GITHUB_ENV
+            echo "使用最新标签: $LATEST_TAG"
           else
-            echo "输入的 build_type 的值为: ${{ github.event.inputs.build_type }}"
-            echo "BUILD_TAG=${{ github.event.inputs.build_type }}" >> $GITHUB_ENV
+            echo "BUILD_TAG=$BUILD_TYPE" >> $GITHUB_ENV
+            echo "使用指定标签: $BUILD_TYPE"
           fi
 
-      # 新增步骤：下载并解压指定版本的代码
-      - name: Download and extract
-        run: |
-          git clone -b ${{ env.BUILD_TAG }} https://github.com/${{env.CODE_GITHUB}}.git ${{env.CODE_PATH}}
+      # 使用 actions/checkout 替代 git clone，更符合 GitHub Actions 最佳实践
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ env.CODE_GITHUB }}
+          ref: ${{ env.BUILD_TAG }}
+          path: ${{ env.CODE_PATH }}
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
@@ -63,9 +67,11 @@ jobs:
       - name: Build App and push Docker image with tags
         run: |
           cd ${{env.CODE_PATH}}
+          # 始终包含 latest 标签
           BUILD_TAGS="-t $IMAGE_NAME:latest"
+          # 如果指定标签不存在，则添加指定标签
           if [[ "${{ steps.check_tag.outputs.tag_exists }}" == "false" ]]; then
-            BUILD_TAGS="-t $IMAGE_NAME:${{ env.BUILD_TAG }} $BUILD_TAGS"
+            BUILD_TAGS="$BUILD_TAGS -t $IMAGE_NAME:${{ env.BUILD_TAG }}"
           fi
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
