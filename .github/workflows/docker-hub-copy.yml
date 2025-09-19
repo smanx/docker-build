@@ -5,7 +5,7 @@ on:
       images:
         description: 'A JSON array of images to sync, e.g., ["user/repo1", "user/repo2"]'
         required: false
-        default: '["ygkkk/argosb"]'
+        default: '["ygkkk/argosbx"]'
   schedule:
     - cron: '0 0 * * *'  # 每天的00:00触发
   push:
@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        image: ${{ fromJSON(github.event.inputs.images || '["ygkkk/argosb"]') }}
+        image: ${{ fromJSON(github.event.inputs.images || '["ygkkk/argosbx"]') }}
 
     steps:
       - name: Checkout
