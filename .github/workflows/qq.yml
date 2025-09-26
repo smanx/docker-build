@@ -60,12 +60,10 @@ jobs:
       - name: Push image if version changed
         if: steps.version.outputs.new_version != steps.version.outputs.old_version
         run: |
-          docker pull --platform linux/amd64 $IMAGE_NAME:dev 2>/dev/null || true
-          docker pull --platform linux/arm64 $IMAGE_NAME:dev 2>/dev/null || true
-          VERSION="${{ steps.version.outputs.new_version }}"
-          # 为已存在的 dev 镜像添加新的标签并推送
-          docker tag $IMAGE_NAME:dev $IMAGE_NAME:$VERSION
-          docker tag $IMAGE_NAME:dev $IMAGE_NAME
-          docker push $IMAGE_NAME:$VERSION
-          docker push $IMAGE_NAME
-          echo "Successfully pushed new version: $VERSION"
+          # 使用 docker buildx imagetools create 命令直接复制多架构镜像
+          # 这个命令会拉取源镜像的 manifest list，然后为每个子镜像创建新的标签并推送到目标仓库，
+          # 最后创建并推送目标镜像的 manifest list。
+          NEW_VERSION=${{ steps.version.outputs.new_version }}
+          docker buildx imagetools create --tag $IMAGE_NAME:$NEW_VERSION $IMAGE_NAME:dev
+          docker buildx imagetools create --tag $IMAGE_NAME:latest $IMAGE_NAME:dev
+          echo "Successfully pushed new version: $NEW_VERSION"
