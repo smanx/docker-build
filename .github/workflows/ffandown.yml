@@ -1,3 +1,4 @@
+```yaml
 name: ffandown build
 on:
   workflow_dispatch:
@@ -53,16 +54,14 @@ jobs:
         run: |
           # 创建工作目录
           mkdir -p ffandown
-          
+        
           ACTUAL_BUILD_TYPE="${{ steps.build_type.outputs.actual_build_type }}"
-          
+        
           # 下载 arm64 版本
-          wget -O ffandown/ffandown-arm64 "https://github.com/${{ env.CODE_GITHUB }}/releases/download/$ACTUAL_BUILD_TYPE/ffandown-linux-arm64"
+          wget -O ffandown/app/dist/ffandown-linux-arm64 "https://github.com/${{ env.CODE_GITHUB }}/releases/download/$ACTUAL_BUILD_TYPE/ffandown-linux-arm64"
           # 下载 x64 版本
-          wget -O ffandown/ffandown-x64 "https://github.com/${{ env.CODE_GITHUB }}/releases/download/$ACTUAL_BUILD_TYPE/ffandown-linux-x64"
-          
-          # 添加执行权限
-          chmod +x ffandown/ffandown-arm64 ffandown/ffandown-x64
+          wget -O ffandown/app/dist/ffandown-linux-amd64 "https://github.com/${{ env.CODE_GITHUB }}/releases/download/$ACTUAL_BUILD_TYPE/ffandown-linux-x64"
+        
 
       # 拷贝私有仓库的Dockerfile到工作目录
       - name: Copy Dockerfile to build directory
@@ -108,3 +107,4 @@ jobs:
             --file Dockerfile \
             $BUILD_TAGS \
             . --push
+```
