@@ -3,103 +3,101 @@ on:
   workflow_dispatch:
     inputs:
       build_type:
-        description: 'Build type'
+        description: 'Build type (e.g., v1.0.0, latest)'
         required: true
         default: 'latest'
   schedule:
-    - cron: '0 0 * * *'  # 每天的00:00触发
+    - cron: '0 0 * * *'  # 每天的00:00 UTC 触发
   push:
     branches:
       - push-all
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # 在 Ubuntu 最新版本上运行作业
     env:
       IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/mediago
-      REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
-      REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
-      BUILD_TAG: ""  # 新增：定义 BUILD_TAG 变量
+      REPO_URL: ${{ vars.REPO_URL }}        # 仓库URL变量 (如果需要，确保在仓库设置中配置)
+      REPO_PATH: ${{ vars.REPO_PATH }}      # 仓库本地路径变量 (如果需要，确保在仓库设置中配置)
+      BUILD_TAG: ""  # 定义 BUILD_TAG 变量
       CODE_GITHUB: "caorushizi/mediago"
       CODE_PATH: "app"
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
-
       - name: Get tag based on build_type
-        id: get_tag
+        id: get_tag_info # 为此步骤添加ID，以便在后续步骤中引用其输出
         run: |
-          if [[ "${{ github.event.inputs.build_type }}" == "latest" || "${{ github.event.inputs.build_type }}" == "" ]]; then
+          BUILD_TYPE_INPUT="${{ github.event.inputs.build_type }}"
+          echo "输入的 build_type 的值为: $BUILD_TYPE_INPUT"
+
+          if [[ "$BUILD_TYPE_INPUT" == "latest" || "$BUILD_TYPE_INPUT" == "" ]]; then
             # 获取最新的GitHub release tag
-            LATEST_GITHUB_TAG=$(curl -s https://api.github.com/repos/${{env.CODE_GITHUB}}/releases/latest | jq -r '.tag_name')
-            echo "LATEST_GITHUB_TAG 的值为: $LATEST_GITHUB_TAG"
-            echo "BUILD_TAG=$LATEST_GITHUB_TAG" >> $GITHUB_ENV
-            echo "BUILD_LATEST_IMAGE=true" >> $GITHUB_OUTPUT # 标记构建latest镜像
+            LATEST_GITHUB_RELEASE_TAG=$(curl -s https://api.github.com/repos/${{env.CODE_GITHUB}}/releases/latest | jq -r '.tag_name')
+            echo "LATEST_GITHUB_RELEASE_TAG 的值为: $LATEST_GITHUB_RELEASE_TAG"
+            echo "BUILD_TAG=${LATEST_GITHUB_RELEASE_TAG}" >> "$GITHUB_ENV" # 将最新release tag设置为 BUILD_TAG 环境变量
+            echo "build_latest_explicitly=true" >> "$GITHUB_OUTPUT" # 标记需要显式构建 latest 标签
           else
-            echo "输入的 build_type 的值为: ${{ github.event.inputs.build_type }}"
-            echo "BUILD_TAG=${{ github.event.inputs.build_type }}" >> $GITHUB_ENV
-            echo "BUILD_LATEST_IMAGE=false" >> $GITHUB_OUTPUT
+            echo "BUILD_TAG=$BUILD_TYPE_INPUT" >> "$GITHUB_ENV" # 将输入的 build_type 设置为 BUILD_TAG 环境变量
+            echo "build_latest_explicitly=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Download and extract code for specified tag
-        if: ${{ steps.get_tag.outputs.BUILD_LATEST_IMAGE == 'false' }} # 如果不是构建latest，则根据 BUILD_TAG 下载
-        run: |
-          git clone -b ${{ env.BUILD_TAG }} --single-branch https://github.com/${{env.CODE_GITHUB}}.git ${{env.CODE_PATH}}
-
-      - name: Download and extract code for latest
-        if: ${{ steps.get_tag.outputs.BUILD_LATEST_IMAGE == 'true' }} # 如果是构建latest，则克隆整个仓库以便 pnpm install
-        run: |
-          git clone https://github.com/${{env.CODE_GITHUB}}.git ${{env.CODE_PATH}}
-          cd ${{env.CODE_PATH}}
-          git checkout ${{ env.BUILD_TAG }} # 切换到最新的 tag
+      - name: Checkout code for specified tag
+        # 无论如何都要克隆代码，使用 BUILD_TAG
+        uses: actions/checkout@v3 # 用于检出仓库操作
+        with:
+          ref: ${{ env.BUILD_TAG }} # 使用 BUILD_TAG 克隆指定版本代码
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v3 # 设置 Docker Buildx，支持多平台构建
 
       # 登录 DockerHub
       - name: Login to DockerHub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+        uses: docker/login-action@v3 # 登录 DockerHub
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 检查 Docker Hub 上的最新 tag 镜像是否存在
+      # 检查 Docker Hub 上的 BUILD_TAG 镜像标签是否存在
       - name: Check if Docker Hub image tag exists
-        id: check_tag_existence
+        id: check_build_tag_existence # 为此步骤添加ID，以便在后续步骤中引用其输出
         run: |
           if docker manifest inspect $IMAGE_NAME:${{ env.BUILD_TAG }} &> /dev/null; then
-            echo "tag_exists=true" >> $GITHUB_OUTPUT
+            echo "build_tag_exists=true" >> "$GITHUB_OUTPUT" # 将 tag_exists 输出设置为 true
           else
-            echo "tag_exists=false" >> $GITHUB_OUTPUT
+            echo "build_tag_exists=false" >> "$GITHUB_OUTPUT" # 将 tag_exists 输出设置为 false
           fi
       
       # 构建 App
       - name: Build App
         run: |
           cd ${{env.CODE_PATH}}
+          # 安装 pnpm
           npm install -g pnpm
-          pnpm install --no-frozen-lockfile
-          pnpm run build:web-release
+          pnpm install --no-frozen-lockfile # 安装依赖，并确保不修改锁定文件
+          pnpm run build:web-release # 运行构建命令
 
       # 构建并推送 Docker 镜像
       - name: Build and push Docker image
         run: |
           cd ${{env.CODE_PATH}}
-          BUILD_TAGS=""
+          DYNAMIC_TAGS=""
 
-          # 确保每次都推送 latest 标签
-          BUILD_TAGS="$BUILD_TAGS -t $IMAGE_NAME:latest"
+          # 始终添加 latest 标签
+          DYNAMIC_TAGS="-t $IMAGE_NAME:latest"
 
-          # 如果 BUILD_TAG 对应的镜像不存在，则添加该标签
-          if [[ "${{ steps.check_tag_existence.outputs.tag_exists }}" == "false" ]]; then
-            echo "Docker Hub 上不存在镜像 tag: ${{ env.BUILD_TAG }}，将添加该标签。"
-            BUILD_TAGS="$BUILD_TAGS -t $IMAGE_NAME:${{ env.BUILD_TAG }}"
+          # 如果 build_type 是 latest 或者为空（通过 get_tag_info.outputs.build_latest_explicitly 判断）
+          # 或者 BUILD_TAG 对应的镜像在 Docker Hub 上不存在，则添加 BUILD_TAG 作为标签
+          if [[ "${{ steps.get_tag_info.outputs.build_latest_explicitly }}" == "true" || "${{ steps.check_build_tag_existence.outputs.build_tag_exists }}" == "false" ]]; then
+            echo "Adding tag: ${{ env.BUILD_TAG }}"
+            DYNAMIC_TAGS="$DYNAMIC_TAGS -t $IMAGE_NAME:${{ env.BUILD_TAG }}"
           else
-            echo "Docker Hub 上已存在镜像 tag: ${{ env.BUILD_TAG }}，不重复添加该标签。"
+            echo "Image with tag ${{ env.BUILD_TAG }} already exists, skipping adding this tag."
           fi
 
-          echo "最终的 Docker 标签参数: $BUILD_TAGS"
+          echo "Final Docker tags for build: $DYNAMIC_TAGS"
 
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
-            $BUILD_TAGS \
+            $DYNAMIC_TAGS \
             . --push
