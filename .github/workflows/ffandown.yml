@@ -65,7 +65,7 @@ jobs:
       # 拷贝私有仓库的Dockerfile到工作目录
       - name: Copy Dockerfile to build directory
         run: |
-          cp $REPO_PATH/ffandown/* ffandown/
+          cp -r $REPO_PATH/ffandown/* ffandown/
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
