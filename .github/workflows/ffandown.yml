@@ -52,7 +52,7 @@ jobs:
       - name: Download release binaries
         run: |
           # 创建工作目录
-          mkdir -p ffandown
+          mkdir -p ffandown/app/dist
         
           ACTUAL_BUILD_TYPE="${{ steps.build_type.outputs.actual_build_type }}"
         
