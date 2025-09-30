@@ -51,19 +51,37 @@ jobs:
       - name: Build and Push Docker image
         id: docker_build
         run: |
-          cd ${{ env.CODE_PATH }}
-          # npm install -g pnpm
-          # pnpm install --no-frozen-lockfile
-          # pnpm run build:web-release
+          # --- 开始：检查 Dockerfile 并确定构建目录 ---
+          BUILD_CONTEXT="${{ env.CODE_PATH }}" # 默认构建目录
 
+          # 检查默认目录下是否存在 Dockerfile
+          if [ ! -f "$BUILD_CONTEXT/Dockerfile" ]; then
+            echo "Dockerfile not found in $BUILD_CONTEXT."
+            # 如果不存在，检查是否存在一个名为 'docker' 的子目录，并且该子目录里有 Dockerfile
+            if [ -d "$BUILD_CONTEXT/docker" ] && [ -f "$BUILD_CONTEXT/docker/Dockerfile" ]; then
+              echo "Found Dockerfile in '$BUILD_CONTEXT/docker'. Setting it as the new build context."
+              # 更新构建目录为子目录
+              BUILD_CONTEXT="$BUILD_CONTEXT/docker"
+            else
+              # 如果在两个位置都找不到 Dockerfile，则构建失败
+              echo "Error: Dockerfile not found in $BUILD_CONTEXT or $BUILD_CONTEXT/docker."
+              exit 1
+            fi
+          else
+            echo "Dockerfile found in $BUILD_CONTEXT."
+          fi
+          
+          echo "Final build context directory: $BUILD_CONTEXT"
+          cd $BUILD_CONTEXT # 进入最终确定的构建目录
+          # --- 结束：检查 Dockerfile 并确定构建目录 ---
+
+          # 以下是您原有的构建和推送逻辑
           BUILD_TYPE="${{ github.event.inputs.build_type }}"
           BUILD_TAGS=""
 
           if [[ -z "$BUILD_TYPE" || "$BUILD_TYPE" == "latest" ]]; then
-            # 场景1：构建 latest
             BUILD_TAGS="-t $IMAGE_NAME:latest"
             
-            # 检查最新的 release tag 在 Docker Hub 是否存在
             if ! docker manifest inspect $IMAGE_NAME:${{ env.LATEST_TAG }} &> /dev/null; then
               echo "Tag ${{ env.LATEST_TAG }} does not exist on Docker Hub. Adding it to the build."
               BUILD_TAGS="$BUILD_TAGS -t $IMAGE_NAME:${{ env.LATEST_TAG }}"
@@ -72,15 +90,12 @@ jobs:
             fi
             
           else
-            # 场景2：构建指定 tag
             BUILD_TAGS="-t $IMAGE_NAME:$BUILD_TYPE"
           fi
           
           echo "Final build tags: $BUILD_TAGS"
           
-          # 执行构建和推送
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             $BUILD_TAGS \
             . --push
-
