@@ -81,9 +81,9 @@ jobs:
           cd ffandown
           ACTUAL_BUILD_TYPE="${{ steps.build_type.outputs.actual_build_type }}"
           if [ "${{ steps.build_type.outputs.use_latest_tag }}" = "true" ]; then
-            BUILD_TAGS_JROTTEBERG="-t $IMAGE_NAME:jrottenberg -t $IMAGE_NAME:jrottenberg-$ACTUAL_BUILD_TYPE -t $IMAGE_NAME:jrottenberg-latest"
+            BUILD_TAGS_JROTTEBERG="-t $IMAGE_NAME:jrottenberg-$ACTUAL_BUILD_TYPE -t $IMAGE_NAME:jrottenberg"
           else
-            BUILD_TAGS_JROTTEBERG="-t $IMAGE_NAME:jrottenberg -t $IMAGE_NAME:jrottenberg-$ACTUAL_BUILD_TYPE"
+            BUILD_TAGS_JROTTEBERG="-t $IMAGE_NAME:jrottenberg-$ACTUAL_BUILD_TYPE"
           fi
           docker buildx build \
             --platform linux/amd64 \
@@ -97,7 +97,7 @@ jobs:
           cd ffandown
           ACTUAL_BUILD_TYPE="${{ steps.build_type.outputs.actual_build_type }}"
           if [ "${{ steps.build_type.outputs.use_latest_tag }}" = "true" ]; then
-            BUILD_TAGS="-t $IMAGE_NAME:latest -t $IMAGE_NAME:$ACTUAL_BUILD_TYPE -t $IMAGE_NAME:latest"
+            BUILD_TAGS="-t $IMAGE_NAME:$ACTUAL_BUILD_TYPE -t $IMAGE_NAME:latest"
           else
             BUILD_TAGS="-t $IMAGE_NAME:$ACTUAL_BUILD_TYPE"
           fi
