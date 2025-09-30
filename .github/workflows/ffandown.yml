@@ -19,21 +19,27 @@ jobs:
       IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/ffandown
       REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
       REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
-      BUILD_TAG: ""  # 新增：定义 BUILD_TAG 变量
       CODE_GITHUB: "helson-lin/ffandown"
-      CODE_PATH: "ffandown"
-      DOCKERFILE_PATH: "ffandown"
 
     steps:
-      # 获取当前日期作为标签
-      - name: Get current date
-        id: date
-        run: echo "date_tag=$(date +%Y%m%d)" >> $GITHUB_OUTPUT
-
-      # 新增步骤：下载并解压指定版本的代码
-      - name: Download and extract
+      # 获取 build_type（如果是 latest 则获取最新的 release tag）
+      - name: Get build type
+        id: build_type
         run: |
-          git clone https://github.com/${{env.CODE_GITHUB}}.git ${{env.CODE_PATH}}
+          if [ "${{ inputs.build_type }}" = "latest" ]; then
+            LATEST_TAG=$(curl -s https://api.github.com/repos/${{ env.CODE_GITHUB }}/releases/latest | jq -r .tag_name)
+            echo "actual_build_type=$LATEST_TAG" >> $GITHUB_OUTPUT
+            echo "use_latest_tag=true" >> $GITHUB_OUTPUT
+          else
+            echo "actual_build_type=${{ inputs.build_type }}" >> $GITHUB_OUTPUT
+            echo "use_latest_tag=false" >> $GITHUB_OUTPUT
+          fi
+
+      # 安装 jq（用于解析 JSON）
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
 
       # 拉取私有仓库代码（使用 GitHub PAT）
       - name: Pull project code
@@ -42,10 +48,26 @@ jobs:
         run: |
           git clone https://$REPO_ACCESS_TOKEN@$REPO_URL $REPO_PATH
 
-      # 新增步骤：拷贝 file
-      - name: Copy file to out directory
+      # 下载指定版本的预编译文件
+      - name: Download release binaries
         run: |
-          cp $REPO_PATH/${{env.DOCKERFILE_PATH}}/* ${{env.CODE_PATH}}/
+          # 创建工作目录
+          mkdir -p ffandown
+          
+          ACTUAL_BUILD_TYPE="${{ steps.build_type.outputs.actual_build_type }}"
+          
+          # 下载 arm64 版本
+          wget -O ffandown/ffandown-arm64 "https://github.com/${{ env.CODE_GITHUB }}/releases/download/$ACTUAL_BUILD_TYPE/ffandown-linux-arm64"
+          # 下载 x64 版本
+          wget -O ffandown/ffandown-x64 "https://github.com/${{ env.CODE_GITHUB }}/releases/download/$ACTUAL_BUILD_TYPE/ffandown-linux-x64"
+          
+          # 添加执行权限
+          chmod +x ffandown/ffandown-arm64 ffandown/ffandown-x64
+
+      # 拷贝私有仓库的Dockerfile到工作目录
+      - name: Copy Dockerfile to build directory
+        run: |
+          cp $REPO_PATH/* ffandown/
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
@@ -58,10 +80,13 @@ jobs:
       # 构建第一版镜像 (jrottenberg版)
       - name: Build App and push Docker image (jrottenberg) with tags
         run: |
-          cd ${{env.CODE_PATH}}
-          # 获取当前日期作为标签
-          DATE_TAG=$(date +%Y%m%d)
-          BUILD_TAGS_JROTTEBERG="-t $IMAGE_NAME:jrottenberg -t $IMAGE_NAME:jrottenberg-$DATE_TAG"
+          cd ffandown
+          ACTUAL_BUILD_TYPE="${{ steps.build_type.outputs.actual_build_type }}"
+          if [ "${{ steps.build_type.outputs.use_latest_tag }}" = "true" ]; then
+            BUILD_TAGS_JROTTEBERG="-t $IMAGE_NAME:jrottenberg -t $IMAGE_NAME:jrottenberg-$ACTUAL_BUILD_TYPE -t $IMAGE_NAME:jrottenberg-latest"
+          else
+            BUILD_TAGS_JROTTEBERG="-t $IMAGE_NAME:jrottenberg -t $IMAGE_NAME:jrottenberg-$ACTUAL_BUILD_TYPE"
+          fi
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --file Dockerfile-jrottenberg \
@@ -71,10 +96,13 @@ jobs:
       # 构建第二版镜像 (原版)
       - name: Build App and push Docker image (default) with tags
         run: |
-          cd ${{env.CODE_PATH}}
-          # 获取当前日期作为标签
-          DATE_TAG=$(date +%Y%m%d)
-          BUILD_TAGS="-t $IMAGE_NAME:latest -t $IMAGE_NAME:$DATE_TAG"
+          cd ffandown
+          ACTUAL_BUILD_TYPE="${{ steps.build_type.outputs.actual_build_type }}"
+          if [ "${{ steps.build_type.outputs.use_latest_tag }}" = "true" ]; then
+            BUILD_TAGS="-t $IMAGE_NAME:latest -t $IMAGE_NAME:$ACTUAL_BUILD_TYPE -t $IMAGE_NAME:latest"
+          else
+            BUILD_TAGS="-t $IMAGE_NAME:$ACTUAL_BUILD_TYPE"
+          fi
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --file Dockerfile \
