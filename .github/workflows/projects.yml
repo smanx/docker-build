@@ -1,6 +1,11 @@
-name: ouben build
+name: projects build
 on:
   workflow_dispatch:
+    inputs:
+      projects:
+        description: 'A JSON array of project names to build, e.g., ["ouben1", "ouben2", "ouben3"]'
+        required: false
+        default: '["ouben", "batch-video-converter"]'
   schedule:
     - cron: '0 0 * * *'  # 每天的00:00触发
   push:
@@ -10,11 +15,14 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: ${{ fromJSON(github.event.inputs.projects || '["ouben1", "ouben2", "ouben3"]') }}
     env:
-      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/ouben
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.project }}
       REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
       REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
-      PROJECT_NAME: ouben
+      PROJECT_NAME: ${{ matrix.project }}
     steps:
       # 拉取私有仓库代码（使用 GitHub PAT）
       - name: Pull project code
