@@ -19,7 +19,7 @@ on:
     - cron: '0 0 * * *'
   push:
     branches:
-      - run
+      - push-all
 
 jobs:
   build:
@@ -30,16 +30,14 @@ jobs:
       matrix:
         project: ${{ fromJSON(
           github.event_name == 'workflow_dispatch' 
-          # 手动触发：合并勾选的项目和手动输入的项目
-          ? format('[{0}]', join(
-              union(
-                filter(fromJSON(env.ALL_PROJECTS), item => inputs[item]),
-                filter(split(inputs.extra_projects, ','), item => trim(item) != '')
-              ),
-              ','
-            ))
-          # 自动触发：使用所有预定义项目
-          : env.ALL_PROJECTS
+            ? format('[{0}]', join(
+                union(
+                  filter(fromJSON(env.ALL_PROJECTS), item => inputs[item]),
+                  filter(split(inputs.extra_projects, ','), item => trim(item) != '')
+                ),
+                ','
+              ))
+            : env.ALL_PROJECTS
         ) }}
     env:
       IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.project }}
