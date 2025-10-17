@@ -47,7 +47,9 @@ jobs:
           echo "Building and pushing Docker image"
           cd $REPO_PATH/$PROJECT_NAME
           BUILD_TAGS="-t $IMAGE_NAME:latest"
+          TIMESTAMP=$(date +%s)
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
+            --build-arg BUILD_TIMESTAMP=$TIMESTAMP \
             $BUILD_TAGS \
-            . --push || { echo "Failed to build and push Docker image"; exit 1; }            
+            . --push || { echo "Failed to build and push Docker image"; exit 1; }           
