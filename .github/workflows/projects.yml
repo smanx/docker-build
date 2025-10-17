@@ -1,96 +1,21 @@
-name: projects build
-on:
-  workflow_dispatch:
-    inputs:
-      ouben:
-        description: 'Build ouben'
-        type: boolean
-        default: false
-      batch-video-converter:
-        description: 'Build batch-video-converter'
-        type: boolean
-        default: false
-      extra_projects:
-        description: 'Additional projects to build (comma separated, e.g., "project1,project2")'
-        type: string
-        required: false
-        default: ''
-  schedule:
-    - cron: '0 0 * * *'
-  push:
-    branches:
-      - run
-
-env:
-  ALL_PROJECTS: '["ouben", "batch-video-converter"]'
-
-jobs:
-  prepare-matrix:
-    runs-on: ubuntu-latest
-    outputs:
-      projects: ${{ steps.set-matrix.outputs.projects }}
-    steps:
-      - name: Set matrix for workflow_dispatch
-        if: github.event_name == 'workflow_dispatch'
-        id: set-matrix
-        run: |
-          # 获取启用的内置项目
-          enabled=()
-          for proj in ouben batch-video-converter; do
-            if [[ "${{ inputs[proj] }}" == "true" ]]; then
-              enabled+=("\"$proj\"")
-            fi
-          done
-          builtin=$(IFS=,; echo "[${enabled[*]}]")
-
-          # 处理额外项目
-          extra=$(echo "${{ inputs.extra_projects }}" | jq -R 'split(",") | map(gsub("^ +| +$"; "")) | map(select(length > 0))')
-          combined=$(echo "$builtin" "$extra" | jq -s 'add | unique')
-
-          echo "projects=$combined" >> $GITHUB_OUTPUT
-
-      - name: Set matrix for scheduled/push events
-        if: github.event_name != 'workflow_dispatch'
-        id: set-default-matrix
-        run: |
-          echo "projects=${{ env.ALL_PROJECTS }}" >> $GITHUB_OUTPUT
-
-  build:
-    needs: prepare-matrix
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        project: ${{ fromJSON(needs.prepare-matrix.outputs.projects) }}
-    env:
-      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.project }}
-      REPO_URL: ${{ vars.REPO_URL }}
-      REPO_PATH: ${{ vars.REPO_PATH }}
-      PROJECT_NAME: ${{ matrix.project }}
-
-    steps:
-      # 拉取私有仓库代码（使用 GitHub PAT）
-      - name: Pull project code
-        env:
-          REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
-        run: |
-          git clone https://${{ env.REPO_ACCESS_TOKEN }}@${{ env.REPO_URL}} ${{ env.REPO_PATH }}
-
-      # 设置 Docker 构建环境
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      # 登录 DockerHub
-      - name: Login to DockerHub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      # 构建 Docker 镜像并推送到 DockerHub
-      - name: Build and push Docker image with tags
-        uses: docker/build-push-action@v4
-        with:
-          context: ./${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ env.IMAGE_NAME }}:latest
+strategy:
+  matrix:
+    project: ${{ 
+      fromJSON(
+        github.event_name == 'workflow_dispatch' 
+          && !isEmpty(inputs.extra_projects)
+            ? format(
+                '[{0}]',
+                join(
+                  union(
+                    filter(fromJSON(env.ALL_PROJECTS), item -> inputs[item] == true),
+                    filter(split(inputs.extra_projects, ','), item -> trim(item) != '')
+                  ),
+                  ','
+                )
+              )
+          || github.event_name == 'workflow_dispatch'
+            ? toJSON(filter(fromJSON(env.ALL_PROJECTS), item -> inputs[item] == true))
+          : env.ALL_PROJECTS
+      )
+    }}
