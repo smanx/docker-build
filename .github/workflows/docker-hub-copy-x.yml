@@ -1,4 +1,4 @@
-name: docker-hub-copy
+name: docker-hub-copy-x
 on:
   workflow_dispatch:
     inputs:
