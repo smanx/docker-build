@@ -2,37 +2,27 @@ name: projects build
 on:
   workflow_dispatch:
     inputs:
-      ouben:
-        description: 'Build ouben'
-        type: boolean
-        default: false
-      batch-video-converter:
-        description: 'Build batch-video-converter'
-        type: boolean
-        default: false
-      extra_projects:
-        description: 'Additional projects to build (comma separated, e.g., "project1,project2")'
-        type: string
+      projects:
+        description: 'A JSON array of project names to build, e.g., ["ouben1", "ouben2", "ouben3"]'
         required: false
-        default: ''
+        default: '["ouben", "batch-video-converter"]'  # 可在仓库 Variables 中设置 DEFAULT_PROJECTS 变量来统一管理
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 0 * * *'  # 每天的00:00触发
   push:
     branches:
-      - push-all
+      - run
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      ALL_PROJECTS: '["ouben", "batch-video-converter"]'
-      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.project }}
-      REPO_URL: ${{ vars.REPO_URL }}
-      REPO_PATH: ${{ vars.REPO_PATH }}
-      PROJECT_NAME: ${{ matrix.project }}
     strategy:
       matrix:
-        project: ${{ fromJSON( env.ALL_PROJECTS || github.event.inputs.extra_projects) }}
+        project: ${{ fromJSON(github.event.inputs.projects || '["ouben", "batch-video-converter"]') }}  # 统一默认值
+    env:
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.project }}
+      REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
+      REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
+      PROJECT_NAME: ${{ matrix.project }}
     steps:
       # 拉取私有仓库代码（使用 GitHub PAT）
       - name: Pull project code
