@@ -1,21 +1,71 @@
-strategy:
-  matrix:
-    project: ${{ 
-      fromJSON(
-        github.event_name == 'workflow_dispatch' 
-          && !isEmpty(inputs.extra_projects)
-            ? format(
-                '[{0}]',
-                join(
-                  union(
-                    filter(fromJSON(env.ALL_PROJECTS), item -> inputs[item] == true),
-                    filter(split(inputs.extra_projects, ','), item -> trim(item) != '')
-                  ),
-                  ','
-                )
-              )
-          || github.event_name == 'workflow_dispatch'
-            ? toJSON(filter(fromJSON(env.ALL_PROJECTS), item -> inputs[item] == true))
-          : env.ALL_PROJECTS
-      )
-    }}
+name: projects build
+on:
+  workflow_dispatch:
+    inputs:
+      ouben:
+        description: 'Build ouben'
+        type: boolean
+        default: false
+      batch-video-converter:
+        description: 'Build batch-video-converter'
+        type: boolean
+        default: false
+      extra_projects:
+        description: 'Additional projects to build (comma separated, e.g., "project1,project2")'
+        type: string
+        required: false
+        default: ''
+  schedule:
+    - cron: '0 0 * * *'
+  push:
+    branches:
+      - push-all
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ALL_PROJECTS: '["ouben", "batch-video-converter"]'
+    strategy:
+      matrix:
+        project: ${{ fromJSON(
+          github.event_name == 'workflow_dispatch' 
+            ? format('[{0}]', join(
+                union(
+                  filter(fromJSON(env.ALL_PROJECTS), item => inputs[item]),
+                  filter(split(inputs.extra_projects, ','), item => trim(item) != '')
+                ),
+                ','
+              ))
+            : env.ALL_PROJECTS
+        ) }}
+    env:
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.project }}
+      REPO_URL: ${{ vars.REPO_URL }}
+      REPO_PATH: ${{ vars.REPO_PATH }}
+      PROJECT_NAME: ${{ matrix.project }}
+    steps:
+      # 拉取私有仓库代码（使用 GitHub PAT）
+      - name: Pull project code
+        env:
+          REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+        run: |
+          git clone https://${{ env.REPO_ACCESS_TOKEN }}@${{ env.REPO_URL}} ${{ env.REPO_PATH }}
+
+      # 设置 Docker 构建环境
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      # 登录 DockerHub
+      - name: Login to DockerHub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      # 构建 Docker 镜像（支持多平台）并推送到 DockerHub
+      - name: Build and push Docker image with tags
+        run: |
+          cd ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
+          BUILD_TAGS="-t ${{ env.IMAGE_NAME }}:latest"
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            $BUILD_TAGS \
+            . --push
