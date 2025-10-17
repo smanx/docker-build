@@ -42,9 +42,11 @@ jobs:
         run: |
           SOURCE_IMAGE=${{ matrix.image }}
           IMAGE_NAME=$(echo $SOURCE_IMAGE | cut -d'/' -f2)
-          DESTINATION_IMAGE=${{ env.DESTINATION_USER }}/${IMAGE_NAME}
-
-          # 使用 docker buildx imagetools create 命令直接复制多架构镜像
-          # 这个命令会拉取源镜像的 manifest list，然后为每个子镜像创建新的标签并推送到目标仓库，
-          # 最后创建并推送目标镜像的 manifest list。
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          DESTINATION_IMAGE=${{ env.DESTINATION_USER }}/${IMAGE_NAME}:${TIMESTAMP}
+          
+          # 复制并添加时间戳标签
           docker buildx imagetools create --tag $DESTINATION_IMAGE $SOURCE_IMAGE
+          
+          # 同时推送latest标签
+          docker buildx imagetools create --tag ${{ env.DESTINATION_USER }}/${IMAGE_NAME}:latest $SOURCE_IMAGE
