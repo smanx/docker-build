@@ -79,22 +79,14 @@ jobs:
           # 拉取源镜像
           docker pull $SOURCE_IMAGE
           
-          # 获取原始镜像的配置信息（包括CMD/ENTRYPOINT）
+          # 获取原始镜像的配置信息（包括CMD
           INSPECT_OUTPUT=$(docker inspect $SOURCE_IMAGE)
-          ENTRYPOINT_JSON=$(echo $INSPECT_OUTPUT | jq -r '.[0].Config.Entrypoint // empty')
           CMD_JSON=$(echo $INSPECT_OUTPUT | jq -r '.[0].Config.Cmd // empty')
           
           # 创建Dockerfile
           echo "FROM $SOURCE_IMAGE" > Dockerfile
           echo 'RUN echo "rebuilt_$(date +%s)" > /rebuild_marker' >> Dockerfile
           
-          # 恢复ENTRYPOINT
-          if [ "$ENTRYPOINT_JSON" != "null" ] && [ -n "$ENTRYPOINT_JSON" ] && [ "$ENTRYPOINT_JSON" != "[]" ]; then
-            ENTRYPOINT_CMD=$(echo $ENTRYPOINT_JSON | jq -r 'map(@sh) | join(" ")')
-            if [ "$ENTRYPOINT_CMD" != "" ]; then
-              echo "ENTRYPOINT $ENTRYPOINT_CMD" >> Dockerfile
-            fi
-          fi
           
           # 恢复CMD
           if [ "$CMD_JSON" != "null" ] && [ -n "$CMD_JSON" ] && [ "$CMD_JSON" != "[]" ]; then
