@@ -32,17 +32,13 @@ jobs:
       PROJECT_NAME: ${{ matrix.project }}
     strategy:
       matrix:
-        project: ${{ fromJSON(
-          github.event_name == 'workflow_dispatch' 
-            ? format('[{0}]', join(
+        project: ${{ fromJSON(format('[{0}]', join(
                 union(
                   filter(fromJSON(env.ALL_PROJECTS), item => inputs[item]),
                   filter(split(inputs.extra_projects, ','), item => trim(item) != '')
                 ),
                 ','
-              ))
-            : env.ALL_PROJECTS
-        ) }}
+              )) || env.ALL_PROJECTS)}}
     steps:
       # 拉取私有仓库代码（使用 GitHub PAT）
       - name: Pull project code
