@@ -7,7 +7,7 @@ on:
         required: false
         default: '["ygkkk/argosbx"]'
   schedule:
-    - cron: '0 0 * * *'  # 每天的00:00触发
+    - cron: '0 0 * * *'
   push:
     branches:
       - run
@@ -38,15 +38,21 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: 拉取、标记并推送多架构 Docker 镜像
+      - name: 拉取并重新构建镜像
         run: |
           SOURCE_IMAGE=${{ matrix.image }}
           IMAGE_NAME=$(echo $SOURCE_IMAGE | cut -d'/' -f2)
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          DESTINATION_IMAGE=${{ env.DESTINATION_USER }}/${IMAGE_NAME}:${TIMESTAMP}
+          DESTINATION_IMAGE=${{ env.DESTINATION_USER }}/${IMAGE_NAME}
           
-          # 复制并添加时间戳标签
-          docker buildx imagetools create --tag $DESTINATION_IMAGE $SOURCE_IMAGE
+          # 拉取源镜像
+          docker pull $SOURCE_IMAGE
           
-          # 同时推送latest标签
-          docker buildx imagetools create --tag ${{ env.DESTINATION_USER }}/${IMAGE_NAME}:latest $SOURCE_IMAGE
+          # 创建临时Dockerfile添加标识文件
+          echo "FROM $SOURCE_IMAGE" > Dockerfile
+          echo 'RUN echo "rebuilt_$(date +%s)" > /rebuild_marker' >> Dockerfile
+          
+          # 重新构建镜像（这会改变hash）
+          docker buildx build --push \
+            --platform linux/amd64,linux/arm64 \
+            --tag $DESTINATION_IMAGE \
+            .
