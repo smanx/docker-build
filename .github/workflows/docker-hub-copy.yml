@@ -14,6 +14,8 @@ on:
 
 env:
   DESTINATION_USER: smanx
+  # 镜像映射配置 - 多对多映射关系
+  IMAGE_MAPPING: '[{"o":"argosbx","d":"xbsogra"},{"o":"source_image1","d":"dest_image1"},{"o":"source_image2","d":"dest_image2"}]'
 
 jobs:
   copy-image:
@@ -38,11 +40,41 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: 安装 jq 工具
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
       - name: 拉取并重新构建镜像
         run: |
           SOURCE_IMAGE=${{ matrix.image }}
-          IMAGE_NAME=$(echo $SOURCE_IMAGE | cut -d'/' -f2)
-          DESTINATION_IMAGE=${{ env.DESTINATION_USER }}/${IMAGE_NAME}
+          SOURCE_NAME=$(echo $SOURCE_IMAGE | cut -d'/' -f2)
+          
+          # 查找映射配置中的目标镜像名称
+          IMAGE_MAPPING='${{ env.IMAGE_MAPPING }}'
+          DEST_NAME=""
+          
+          # 解析映射配置，查找匹配的源镜像
+          for mapping in $(echo $IMAGE_MAPPING | jq -c '.[]'); do
+            ORIGIN=$(echo $mapping | jq -r '.o')
+            DEST=$(echo $mapping | jq -r '.d')
+            if [ "$ORIGIN" = "$SOURCE_NAME" ]; then
+              DEST_NAME=$DEST
+              break
+            fi
+          done
+          
+          # 如果没有找到映射，使用源镜像名称
+          if [ -z "$DEST_NAME" ]; then
+            DEST_NAME=$SOURCE_NAME
+          fi
+          
+          DESTINATION_IMAGE=${{ env.DESTINATION_USER }}/$DEST_NAME
+          
+          echo "源镜像: $SOURCE_IMAGE"
+          echo "源名称: $SOURCE_NAME" 
+          echo "目标名称: $DEST_NAME"
+          echo "目标镜像: $DESTINATION_IMAGE"
           
           # 拉取源镜像
           docker pull $SOURCE_IMAGE
