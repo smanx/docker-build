@@ -1,4 +1,5 @@
 name: Merge-sub build
+
 on:
   workflow_dispatch:
   schedule:
@@ -10,14 +11,19 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions: # <-- 新增：添加权限设置
+      contents: read
+      packages: write # 写入 GitHub Packages 需要此权限
     env:
-      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/merge-sub
+      DOCKERHUB_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/merge-sub
+      GHCR_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/merge-sub # <-- 修改：GHCR 镜像名称
       REPO_PATH: ${{ vars.REPO_PATH }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Pull code
+      - name: Pull code # 此步骤拉取整个仓库，如果你的Dockerfile在根目录，可能不需要这个步骤
         run: |
           git clone https://github.com/eooce/Merge-sub.git $REPO_PATH
 
@@ -27,18 +33,26 @@ jobs:
 
       # 登录DockerHub
       - name: Login to DockerHub
+        # 确保你的仓库Secrets中配置了DOCKERHUB_USERNAME和DOCKERHUB_TOKEN
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
-      # 构建Docker镜像（支持多平台）并推送到DockerHub，同时打上日期标签
-      - name: Build and push
+      # 登录GitHub Container Registry (GHCR)
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3 # <-- 新增：登录 GHCR 的 Action
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }} # 使用触发工作流的用户的用户名
+          password: ${{ secrets.GITHUB_TOKEN }} # 使用GitHub自动提供的GITHUB_TOKEN
+
+      # 构建Docker镜像（支持多平台）并推送到DockerHub和GHCR，同时打上日期标签
+      - name: Build and push to DockerHub and GHCR
         run: |
           cd $REPO_PATH
+          # 打上日期标签和最新标签
+          TAGS_DOCKERHUB="-t $DOCKERHUB_IMAGE_NAME:$(date +'%Y%m%d') -t $DOCKERHUB_IMAGE_NAME:latest"
+          TAGS_GHCR="-t $GHCR_IMAGE_NAME:$(date +'%Y%m%d') -t $GHCR_IMAGE_NAME:latest"
+
           docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v8,linux/arm/v7,linux/arm/v6 \
-            -t $IMAGE_NAME:$(date +'%Y%m%d') \
-            -t $IMAGE_NAME \
+            $TAGS_DOCKERHUB \
+            $TAGS_GHCR \
             . --push
-      
-      
-
-      
-
