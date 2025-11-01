@@ -52,7 +52,7 @@ jobs:
           TAGS_DOCKERHUB="-t $DOCKERHUB_IMAGE_NAME:$(date +'%Y%m%d') -t $DOCKERHUB_IMAGE_NAME:latest"
           TAGS_GHCR="-t $GHCR_IMAGE_NAME:$(date +'%Y%m%d') -t $GHCR_IMAGE_NAME:latest"
 
-          docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v8 \
+          docker buildx build --platform linux/amd64,linux/arm64/v8 \
             $TAGS_DOCKERHUB \
             $TAGS_GHCR \
             . --push
