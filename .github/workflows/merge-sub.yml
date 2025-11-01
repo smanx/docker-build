@@ -25,7 +25,7 @@ jobs:
 
       - name: Pull code # 此步骤拉取整个仓库，如果你的Dockerfile在根目录，可能不需要这个步骤
         run: |
-          git clone https://github.com/eooce/Merge-sub.git $REPO_PATH
+          git clone https://github.com/smanx/Merge-sub.git $REPO_PATH
 
       # 设置Docker构建环境
       - name: Set up Docker Buildx
@@ -52,7 +52,7 @@ jobs:
           TAGS_DOCKERHUB="-t $DOCKERHUB_IMAGE_NAME:$(date +'%Y%m%d') -t $DOCKERHUB_IMAGE_NAME:latest"
           TAGS_GHCR="-t $GHCR_IMAGE_NAME:$(date +'%Y%m%d') -t $GHCR_IMAGE_NAME:latest"
 
-          docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v8,linux/arm/v7,linux/arm/v6 \
+          docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v8 \
             $TAGS_DOCKERHUB \
             $TAGS_GHCR \
             . --push
