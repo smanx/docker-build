@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/bettafish
+      GHCR_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/bettafish
       REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
       REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
       PROJECT_NAME: bettafish
@@ -38,13 +39,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }} # 使用触发工作流的用户的用户名
           password: ${{ secrets.GITHUB_TOKEN }} # 使用GitHub自动提供的GITHUB_TOKEN
-          
+
       # 构建 Docker 镜像（支持多平台）并推送到 DockerHub
       - name: Build and push Docker image with tags
         run: |
           cd ${{ env.REPO_PATH }}
-          BUILD_TAGS="-t ${{ env.IMAGE_NAME }}:$(date +'%Y%m%d') -t ${{ env.IMAGE_NAME }}:latest"
+          BUILD_TAGS="-t $IMAGE_NAME:$(date +'%Y%m%d') -t $IMAGE_NAME:latest"
+          TAGS_GHCR="-t $GHCR_IMAGE_NAME:$(date +'%Y%m%d') -t $GHCR_IMAGE_NAME:latest"
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             $BUILD_TAGS \
+            $TAGS_GHCR \
             . --push
