@@ -35,7 +35,7 @@ jobs:
       - name: Build and push Docker image with tags
         run: |
           cd ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
-          BUILD_TAGS="-t ${{ env.IMAGE_NAME }}:latest"
+          BUILD_TAGS="-t ${{ env.IMAGE_NAME }}:$(date +'%Y%m%d') -t ${{ env.IMAGE_NAME }}:latest"
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             $BUILD_TAGS \
