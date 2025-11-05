@@ -38,6 +38,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }} # 使用触发工作流的用户的用户名
           password: ${{ secrets.GITHUB_TOKEN }} # 使用GitHub自动提供的GITHUB_TOKEN
+          
       # 构建 Docker 镜像（支持多平台）并推送到 DockerHub
       - name: Build and push Docker image with tags
         run: |
