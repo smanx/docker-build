@@ -1,0 +1,96 @@
+name: Single Project Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_dir:
+        description: 'Project directory name (relative to the cloned repository root)'
+        required: true
+        default: 'project-name'
+      image_name:
+        description: 'Docker image name (without tag)'
+        required: true
+        default: 'username/project-name'
+      image_tag:
+        description: 'Docker image tag'
+        required: true
+        default: 'latest'
+      push_to_dockerhub:
+        description: 'Push to DockerHub'
+        type: boolean
+        default: true
+      push_to_ghcr:
+        description: 'Push to GHCR'
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_NAME: ${{ github.event.inputs.project_dir }}
+      IMAGE_NAME: ${{ github.event.inputs.image_name }}
+      IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+      REPO_URL: ${{ vars.REPO_URL }}        # 仓库URL变量
+      REPO_PATH: ${{ vars.REPO_PATH }}      # 仓库本地路径变量
+      PUSH_TO_DOCKERHUB: ${{ github.event.inputs.push_to_dockerhub }}
+      PUSH_TO_GHCR: ${{ github.event.inputs.push_to_ghcr }}
+    
+    steps:
+      # 拉取私有仓库代码（使用 GitHub PAT）
+      - name: Pull project code
+        env:
+          REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+        run: |
+          git clone https://${{ env.REPO_ACCESS_TOKEN }}@${{ env.REPO_URL}} ${{ env.REPO_PATH }}
+
+      # 设置 Docker 构建环境
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      # 登录 DockerHub（仅在需要时）
+      - name: Login to DockerHub
+        if: env.PUSH_TO_DOCKERHUB == 'true'
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      # 登录 GHCR（仅在需要时）
+      - name: Login to GHCR
+        if: env.PUSH_TO_GHCR == 'true'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # 构建 Docker 镜像（支持多平台）并推送到指定注册表
+      - name: Build and push Docker image with tags
+        run: |
+          cd ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
+          BUILD_TAGS=""
+          
+          # 根据选择添加标签
+          if [ "${{ env.PUSH_TO_DOCKERHUB }}" = "true" ]; then
+            BUILD_TAGS="$BUILD_TAGS -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+          fi
+          
+          if [ "${{ env.PUSH_TO_GHCR }}" = "true" ]; then
+            BUILD_TAGS="$BUILD_TAGS -t ghcr.io/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+          fi
+          
+          # 如果至少选择了一个注册表，则构建和推送
+          if [ -n "$BUILD_TAGS" ]; then
+            docker buildx build \
+              --platform linux/amd64,linux/arm64 \
+              $BUILD_TAGS \
+              . --push
+          else
+            echo "No registry selected for push. Building image only."
+            docker buildx build \
+              --platform linux/amd64,linux/arm64 \
+              .
+          fi
+
+      # 输出构建信息
+      - name: Output build information
+        run: |
+          echo "Build completed with the following settings:"
+          echo "Project directory: ${{ env.PROJECT_NAME }}"
+          echo "Image name: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+          echo "Push to DockerHub: ${{ env.PUSH_TO_DOCKERHUB }}"
+          echo "Push to GHCR: ${{ env.PUSH_TO_GHCR }}"
