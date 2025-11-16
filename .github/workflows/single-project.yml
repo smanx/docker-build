@@ -18,11 +18,11 @@ on:
       push_to_dockerhub:
         description: 'Push to DockerHub'
         type: boolean
-        default: true
+        default: false
       push_to_ghcr:
         description: 'Push to GHCR'
         type: boolean
-        default: true
+        default: false
 
 permissions:
   packages: write
