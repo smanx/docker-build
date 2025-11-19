@@ -1,4 +1,4 @@
-name: Single Project Build
+name: Huggingface Project Build
 
 on:
   workflow_dispatch:
@@ -6,11 +6,11 @@ on:
       project_dir:
         description: 'Project directory name (relative to the cloned repository root)'
         required: true
-        default: 'project-name'
+        default: 'huggingface'
       image_name:
         description: 'Docker image name (without tag)'
         required: true
-        default: 'username/project-name'
+        default: 'smanx/uptime'
       image_tag:
         description: 'Docker image tag'
         required: true
