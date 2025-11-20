@@ -27,6 +27,16 @@ on:
         description: 'Push to GHCR'
         type: boolean
         default: false
+      build_platforms:
+        description: 'Select build platforms'
+        required: true
+        type: choice
+        default: 'linux/amd64,linux/arm64'
+        options:
+          - 'linux/amd64'
+          - 'linux/arm64'
+          - 'linux/amd64,linux/arm64'
+          - 'linux/amd64,linux/arm64,linux/arm/v7'
 
 permissions:
   packages: write
@@ -44,6 +54,7 @@ jobs:
       DOCKERFILE: ${{ github.event.inputs.dockerfile }}
       PUSH_TO_DOCKERHUB: ${{ github.event.inputs.push_to_dockerhub }}
       PUSH_TO_GHCR: ${{ github.event.inputs.push_to_ghcr }}
+      BUILD_PLATFORMS: ${{ github.event.inputs.build_platforms }}
       
     steps:
       # 拉取私有仓库代码（使用 GitHub PAT）
@@ -101,14 +112,14 @@ jobs:
           # 如果至少选择了一个注册表，则构建和推送
           if [ -n "$BUILD_TAGS" ]; then
             docker buildx build \
-              --platform linux/amd64,linux/arm64 \
+              --platform ${{ env.BUILD_PLATFORMS }} \
               --file ${{ env.DOCKERFILE }} \
               $BUILD_TAGS \
               . --push
           else
             echo "No registry selected for push. Building image only."
             docker buildx build \
-              --platform linux/amd64,linux/arm64 \
+              --platform ${{ env.BUILD_PLATFORMS }} \
               --file ${{ env.DOCKERFILE }} \
               .
           fi
@@ -123,4 +134,5 @@ jobs:
           echo "Image name: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
           echo "Push to DockerHub: ${{ env.PUSH_TO_DOCKERHUB }}"
           echo "Push to GHCR: ${{ env.PUSH_TO_GHCR }}"
+          echo "Build platforms: ${{ env.BUILD_PLATFORMS }}"
           
