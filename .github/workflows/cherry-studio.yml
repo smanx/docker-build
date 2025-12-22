@@ -45,6 +45,9 @@ jobs:
   build-and-push:
     needs: get-latest-version
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [linux/amd64, linux/arm64]
     env:
       PROJECT_NAME: cherry-studio
       IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/cherry-studio
@@ -71,13 +74,15 @@ jobs:
       - name: Download Cherry Studio deb packages
         run: |
           if [ -n "${{ needs.get-latest-version.outputs.amd64_url }}" ]; then
-            curl -L -o "$REPO_PATH/$PROJECT_NAME/cherry-studio-amd64.deb" "${{ needs.get-latest-version.outputs.amd64_url }}"
+            curl -L -o "$REPO_PATH/$PROJECT_NAME/amd64.deb" "${{ needs.get-latest-version.outputs.amd64_url }}"
           fi
           
           if [ -n "${{ needs.get-latest-version.outputs.arm64_url }}" ]; then
-            curl -L -o "$REPO_PATH/$PROJECT_NAME/cherry-studio-arm64.deb" "${{ needs.get-latest-version.outputs.arm64_url }}"
+            curl -L -o "$REPO_PATH/$PROJECT_NAME/arm64.deb" "${{ needs.get-latest-version.outputs.arm64_url }}"
           fi
-          echo "$REPO_PATH/$PROJECT_NAME directory contents:"
+          
+          # 检查下载的文件
+          echo "Contents of $REPO_PATH/$PROJECT_NAME directory:"
           ls -la $REPO_PATH/$PROJECT_NAME
           echo "$REPO_PATH/$PROJECT_NAME directory end"
 
@@ -85,8 +90,10 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           push: true
+          build-args: |
+            CHERRY_STUDIO_DEB=${{ matrix.platform == 'linux/amd64' && 'amd64.deb' || 'arm64.deb' }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/cherry-studio:${{ needs.get-latest-version.outputs.version }}
             ${{ secrets.DOCKERHUB_USERNAME }}/cherry-studio:latest
