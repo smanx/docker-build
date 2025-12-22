@@ -55,7 +55,10 @@ jobs:
         env:
           REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
         run: |
+          # 确保路径干净
+          rm -rf $REPO_PATH
           git clone https://$REPO_ACCESS_TOKEN@$REPO_URL $REPO_PATH
+      # 必须安装 QEMU 才能进行跨架构编译（比如在 amd64 机器上构建 arm64 镜像）
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
@@ -67,14 +70,28 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Download Cherry Studio deb packages
         run: |
-          # 两个包都下载到同一个目录下
-          curl -L -o "$REPO_PATH/$PROJECT_NAME/amd64.deb" "${{ needs.get-latest-version.outputs.amd64_url }}"
-          curl -L -o "$REPO_PATH/$PROJECT_NAME/arm64.deb" "${{ needs.get-latest-version.outputs.arm64_url }}"
+          # 创建存放目录
+          mkdir -p "$REPO_PATH/$PROJECT_NAME"
+          
+          # 下载 amd64 包
+          if [ -n "${{ needs.get-latest-version.outputs.amd64_url }}" ]; then
+            curl -L -o "$REPO_PATH/$PROJECT_NAME/amd64.deb" "${{ needs.get-latest-version.outputs.amd64_url }}"
+          else
+            echo "Error: amd64_url is empty" && exit 1
+          fi
+          
+          # 下载 arm64 包
+          if [ -n "${{ needs.get-latest-version.outputs.arm64_url }}" ]; then
+            curl -L -o "$REPO_PATH/$PROJECT_NAME/arm64.deb" "${{ needs.get-latest-version.outputs.arm64_url }}"
+          else
+            echo "Error: arm64_url is empty" && exit 1
+          fi
       - name: Build and push multi-arch image
         uses: docker/build-push-action@v5
         with:
           context: ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
-          platforms: linux/amd64,linux/arm64  # 同时指定两个架构
+          # 同时构建两个架构，由 Buildx 自动创建清单（Manifest）
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/cherry-studio:${{ needs.get-latest-version.outputs.version }}
