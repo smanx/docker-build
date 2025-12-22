@@ -104,7 +104,7 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/cherry-studio:latest-${{ matrix.platform_tag }}
 
   create-manifest:
-    needs: build-and-push
+    needs: get-latest-version
     runs-on: ubuntu-latest
     steps:
       - name: Set up Docker Buildx
