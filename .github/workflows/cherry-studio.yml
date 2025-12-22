@@ -117,12 +117,15 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Create and push multi-arch manifest
+        env:
+          VERSION: ${{ needs.get-latest-version.outputs.version }}
         run: |
-          VERSION="${{ needs.get-latest-version.outputs.version }}"
           if [ -z "$VERSION" ]; then
             echo "Error: Version is empty"
             exit 1
           fi
+          
+          echo "Using version: $VERSION"
           
           docker manifest create ${{ secrets.DOCKERHUB_USERNAME }}/cherry-studio:$VERSION \
             --amend ${{ secrets.DOCKERHUB_USERNAME }}/cherry-studio:${{ needs.get-latest-version.outputs.version }}-amd64 \
