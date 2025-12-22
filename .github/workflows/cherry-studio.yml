@@ -70,6 +70,13 @@ jobs:
       # 下载两种架构的 deb 包到构建上下文
       - name: Download Cherry Studio deb packages
         run: |
+          echo "Current directory contents:"
+          ls -la
+          echo "REPO_PATH directory contents:"
+          ls -la $REPO_PATH
+          mkdir -p $REPO_PATH/$PROJECT_NAME
+          echo "REPO_PATH/PROJECT_NAME directory contents:"
+          ls -la $REPO_PATH/$PROJECT_NAME
           if [ -n "${{ needs.get-latest-version.outputs.amd64_url }}" ]; then
             curl -L -o "$REPO_PATH/$PROJECT_NAME/cherry-studio-amd64.deb" "${{ needs.get-latest-version.outputs.amd64_url }}"
           fi
