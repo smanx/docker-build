@@ -23,7 +23,7 @@ jobs:
       - id: set-matrix
         run: |
           # 1. 定义默认应用列表 (必须是标准 JSON 数组)
-          DEFAULT_APPS='["clash-verge"]'
+          DEFAULT_APPS='["clash-verge","clash-party","FlClash"]'
           
           INPUT_APPS="${{ github.event.inputs.apps }}"
           
@@ -82,11 +82,23 @@ jobs:
       - name: Extract version
         id: version
         run: |
-          NEW_VERSION=$(docker run --rm $IMAGE_NAME:dev cat /etc/cont-env.d/APP_VERSION)
+          # 1. 提取新版本，并增加去掉首尾空格的处理
+          NEW_VERSION=$(docker run --rm $IMAGE_NAME:dev cat /etc/cont-env.d/APP_VERSION | xargs)
+          
+          # 2. 调试：在日志中打印提取到的版本（方便排查）
+          echo "Detected New Version: '$NEW_VERSION'"
+          
+          # 3. 校验：如果版本号为空，直接报错停止，防止后续打包失败
+          if [ -z "$NEW_VERSION" ]; then
+            echo "Error: APP_VERSION file is empty or not found in image!"
+            exit 1
+          fi
+
           echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
           
+          # 提取旧版本逻辑保持不变...
           if docker pull $IMAGE_NAME:latest 2>/dev/null; then
-            OLD_VERSION=$(docker run --rm $IMAGE_NAME:latest cat /etc/cont-env.d/APP_VERSION)
+            OLD_VERSION=$(docker run --rm $IMAGE_NAME:latest cat /etc/cont-env.d/APP_VERSION | xargs)
           else
             OLD_VERSION="none"
           fi
