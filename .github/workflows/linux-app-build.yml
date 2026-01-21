@@ -82,8 +82,16 @@ jobs:
       - name: Extract version
         id: version
         run: |
-          # 1. 提取原始版本号
-          RAW_VERSION=$(docker run --rm $IMAGE_NAME:dev cat /etc/cont-env.d/APP_VERSION | xargs)
+          # 1. 提取原始版本号 (增加 60s 超时处理)
+          echo "Fetching version from dev image..."
+          RAW_VERSION=$(timeout 60s docker run --rm $IMAGE_NAME:dev cat /etc/cont-env.d/APP_VERSION | xargs)
+          
+          # 检查 timeout 是否触发（退出码 124 表示超时）
+          if [ $? -eq 124 ]; then
+            echo "Error: Getting version timed out after 60 seconds"
+            exit 1
+          fi
+
           echo "Raw version: $RAW_VERSION"
 
           # 2. 将非法字符（如 +）替换为下划线 _
