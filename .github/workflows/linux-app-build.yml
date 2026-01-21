@@ -84,7 +84,7 @@ jobs:
         run: |
           # 1. 提取原始版本号 (增加 60s 超时处理)
           echo "Fetching version from dev image..."
-          RAW_VERSION=$(timeout 60s docker run --rm $IMAGE_NAME:dev cat /etc/cont-env.d/APP_VERSION | xargs)
+          RAW_VERSION=$(timeout 60s docker run --rm --entrypoint cat $IMAGE_NAME:dev /etc/cont-env.d/APP_VERSION | xargs)
           
           # 检查 timeout 是否触发（退出码 124 表示超时）
           if [ $? -eq 124 ]; then
@@ -104,7 +104,7 @@ jobs:
           
           # 提取旧版本对比逻辑保持不变
           if docker pull $IMAGE_NAME:latest 2>/dev/null; then
-            OLD_RAW=$(docker run --rm $IMAGE_NAME:latest cat /etc/cont-env.d/APP_VERSION | xargs)
+            OLD_RAW=$(docker run --rm --entrypoint cat $IMAGE_NAME:latest /etc/cont-env.d/APP_VERSION | xargs)
             OLD_SAFE=$(echo "$OLD_RAW" | sed 's/[^a-zA-Z0-9._-]/_/g')
             echo "old_version=${OLD_SAFE}" >> $GITHUB_OUTPUT
           else
