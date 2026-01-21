@@ -23,7 +23,7 @@ jobs:
       - id: set-matrix
         run: |
           # 1. 定义默认应用列表 (必须是标准 JSON 数组)
-          DEFAULT_APPS='["clash-verge","clash-party","FlClash"]'
+          DEFAULT_APPS='["clash-verge","clash-party","FlClash","cherry-studio"]'
           
           INPUT_APPS="${{ github.event.inputs.apps }}"
           
