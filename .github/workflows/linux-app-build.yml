@@ -46,11 +46,15 @@ jobs:
         app_name: ${{ fromJson(needs.setup.outputs.app_matrix) }}
 
     env:
-      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.app_name }}
       REPO_URL: ${{ vars.REPO_URL }}
       REPO_PATH: ${{ vars.REPO_PATH }}
 
     steps:
+      - name: Set lower case image name
+        run: |
+          APP_LOWER=$(echo "${{ matrix.app_name }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/$APP_LOWER" >> $GITHUB_ENV
+
       - name: Pull project code
         env:
           REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
