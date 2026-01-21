@@ -82,27 +82,26 @@ jobs:
       - name: Extract version
         id: version
         run: |
-          # 1. 提取新版本，并增加去掉首尾空格的处理
-          NEW_VERSION=$(docker run --rm $IMAGE_NAME:dev cat /etc/cont-env.d/APP_VERSION | xargs)
-          
-          # 2. 调试：在日志中打印提取到的版本（方便排查）
-          echo "Detected New Version: '$NEW_VERSION'"
-          
-          # 3. 校验：如果版本号为空，直接报错停止，防止后续打包失败
-          if [ -z "$NEW_VERSION" ]; then
-            echo "Error: APP_VERSION file is empty or not found in image!"
-            exit 1
-          fi
+          # 1. 提取原始版本号
+          RAW_VERSION=$(docker run --rm $IMAGE_NAME:dev cat /etc/cont-env.d/APP_VERSION | xargs)
+          echo "Raw version: $RAW_VERSION"
 
-          echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          # 2. 将非法字符（如 +）替换为下划线 _
+          # 这样 0.8.91+2025122201 会变成 0.8.91_2025122201
+          SAFE_VERSION=$(echo "$RAW_VERSION" | sed 's/[^a-zA-Z0-9._-]/_/g')
+          echo "Safe version: $SAFE_VERSION"
+
+          # 3. 输出处理后的安全版本号
+          echo "new_version=${SAFE_VERSION}" >> $GITHUB_OUTPUT
           
-          # 提取旧版本逻辑保持不变...
+          # 提取旧版本对比逻辑保持不变
           if docker pull $IMAGE_NAME:latest 2>/dev/null; then
-            OLD_VERSION=$(docker run --rm $IMAGE_NAME:latest cat /etc/cont-env.d/APP_VERSION | xargs)
+            OLD_RAW=$(docker run --rm $IMAGE_NAME:latest cat /etc/cont-env.d/APP_VERSION | xargs)
+            OLD_SAFE=$(echo "$OLD_RAW" | sed 's/[^a-zA-Z0-9._-]/_/g')
+            echo "old_version=${OLD_SAFE}" >> $GITHUB_OUTPUT
           else
-            OLD_VERSION="none"
+            echo "old_version=none" >> $GITHUB_OUTPUT
           fi
-          echo "old_version=${OLD_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Push image if version changed
         if: steps.version.outputs.new_version != steps.version.outputs.old_version
