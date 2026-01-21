@@ -22,18 +22,18 @@ jobs:
     steps:
       - id: set-matrix
         run: |
-          # 默认的应用完整列表
+          # 1. 定义默认应用列表 (必须是标准 JSON 数组)
           DEFAULT_APPS='["clash-verge"]'
           
           INPUT_APPS="${{ github.event.inputs.apps }}"
           
           if [ -z "$INPUT_APPS" ]; then
-            # 如果是定时任务或没输入，使用默认列表
+            # 如果没输入，输出默认列表
             echo "matrix=$DEFAULT_APPS" >> $GITHUB_OUTPUT
           else
-            # 如果有手动输入，将逗号分隔字符串转为 JSON 数组
-            # 例如: "app1, app3" -> ["app1", "app3"]
-            JSON_APPS=$(echo "[$INPUT_APPS]" | sed 's/[^, ]*/"&"/g' | sed 's/ //g')
+            # 2. 使用 jq 处理输入，确保格式完美无误
+            # 逻辑：将输入按逗号切割 -> 去空格 -> 转换为 JSON 数组
+            JSON_APPS=$(echo "$INPUT_APPS" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | jq -R . | jq -s -c .)
             echo "matrix=$JSON_APPS" >> $GITHUB_OUTPUT
           fi
 
