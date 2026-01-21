@@ -23,7 +23,7 @@ jobs:
       - id: set-matrix
         run: |
           # 默认的应用完整列表
-          DEFAULT_APPS='["app1", "app2", "app3", "app4"]'
+          DEFAULT_APPS='["clash-verge"]'
           
           INPUT_APPS="${{ github.event.inputs.apps }}"
           
