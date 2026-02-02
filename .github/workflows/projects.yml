@@ -51,6 +51,7 @@ jobs:
         run: |
           # 尝试从镜像内的 /tmp/app_version.env 文件读取版本号
           APP_VERSION=$(docker run --rm ${{ env.IMAGE_NAME }}:build cat /tmp/app_version.env 2>/dev/null || echo "")
+          echo "Raw APP_VERSION from file: '$APP_VERSION'"
           
           # 校验版本号是否有效：不为空、不包含空格、不包含长英文单词
           if [ -n "$APP_VERSION" ] && [[ ! "$APP_VERSION" =~ [[:space:]] ]] && [[ ! "$APP_VERSION" =~ [A-Za-z]{4,} ]]; then
