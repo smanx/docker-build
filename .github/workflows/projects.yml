@@ -39,15 +39,11 @@ jobs:
       - name: Login to DockerHub
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
-      # 构建 Docker 镜像（支持多平台），暂不推送
-      - name: Build Docker image (no push)
+      # 构建 Docker 镜像（仅 amd64 平台用于提取 APP_VERSION）
+      - name: Build Docker image (amd64 only)
         run: |
           cd ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            -t ${{ env.IMAGE_NAME }}:build \
-            --load \
-            .
+          docker build -t ${{ env.IMAGE_NAME }}:build .
 
       # 从镜像中提取 APP_VERSION 环境变量
       - name: Extract APP_VERSION from image
@@ -63,15 +59,11 @@ jobs:
             echo "APP_VERSION not found, using date: $DATE_TAG"
           fi
 
-      # 为镜像打标签并推送到 DockerHub
-      - name: Tag and push Docker image
+      # 构建多平台镜像并推送到 DockerHub
+      - name: Build and push multi-platform Docker image
         run: |
           VERSION_TAG="${{ steps.version.outputs.version }}"
           
-          # 获取镜像的 manifest 用于多平台推送
-          docker buildx imagetools inspect ${{ env.IMAGE_NAME }}:build --format '{{json .Manifest}}' > /tmp/manifest.json
-          
-          # 使用 buildx 重新构建并推送，带上所有标签
           cd ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
