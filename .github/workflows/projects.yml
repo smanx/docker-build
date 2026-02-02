@@ -49,9 +49,27 @@ jobs:
       - name: Extract APP_VERSION from image
         id: version
         run: |
-          # 尝试从镜像内的 /tmp/app_version.env 文件读取版本号
-          APP_VERSION=$(docker run --rm ${{ env.IMAGE_NAME }}:build cat /tmp/app_version.env 2>/dev/null || echo "")
-          echo "Raw APP_VERSION from file: '$APP_VERSION'"
+          # 启动容器
+          CONTAINER_ID=$(docker run -d ${{ env.IMAGE_NAME }}:build sleep 3600)
+          
+          # 直接复制文件到本地
+          docker cp $CONTAINER_ID:/tmp/app_version.env /tmp/app_version.env 2>/dev/null || echo "" > /tmp/app_version.env
+          
+          # 停止并删除容器
+          docker stop $CONTAINER_ID >/dev/null 2>&1 || true
+          docker rm $CONTAINER_ID >/dev/null 2>&1 || true
+          
+          # 读取文件内容并提取 APP_VERSION
+          if [ -f /tmp/app_version.env ]; then
+            APP_VERSION=$(grep -oP 'APP_VERSION=\K[^[:space:]]+' /tmp/app_version.env 2>/dev/null || echo "")
+            echo "Extracted APP_VERSION from file: '$APP_VERSION'"
+          fi
+          
+          # 如果文件中没找到，尝试从环境变量获取
+          if [ -z "$APP_VERSION" ]; then
+            APP_VERSION=$(docker run --rm ${{ env.IMAGE_NAME }}:build printenv APP_VERSION 2>/dev/null || echo "")
+            echo "Extracted APP_VERSION from env: '$APP_VERSION'"
+          fi
           
           # 校验版本号是否有效：不为空、不包含空格、不包含长英文单词
           if [ -n "$APP_VERSION" ] && [[ ! "$APP_VERSION" =~ [[:space:]] ]] && [[ ! "$APP_VERSION" =~ [A-Za-z]{4,} ]]; then
