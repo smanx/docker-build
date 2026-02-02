@@ -5,7 +5,7 @@ on:
       projects:
         description: 'A JSON array of project names to build, e.g., ["ouben1", "ouben2", "ouben3"]'
         required: false
-        default: '["open-auto-glm"]'  # 可在仓库 Variables 中设置 DEFAULT_PROJECTS 变量来统一管理
+        default: '["openclaw"]'  # 可在仓库 Variables 中设置 DEFAULT_PROJECTS 变量来统一管理
   schedule:
     - cron: '0 0 * * *'  # 每天的00:00触发
   push:
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        project: ${{ fromJSON(github.event.inputs.projects || '["open-auto-glm"]') }}  # 统一默认值
+        project: ${{ fromJSON(github.event.inputs.projects || '["open-auto-glm", "openclaw"]') }}  # 统一默认值
     env:
       IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.project }}
       REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
