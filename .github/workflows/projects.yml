@@ -49,14 +49,15 @@ jobs:
       - name: Extract APP_VERSION from image
         id: version
         run: |
-          APP_VERSION=$(docker run --rm ${{ env.IMAGE_NAME }}:build printenv APP_VERSION || echo "")
-          if [ -n "$APP_VERSION" ]; then
+          APP_VERSION=$(docker run --rm ${{ env.IMAGE_NAME }}:build printenv APP_VERSION 2>/dev/null || echo "")
+          # 过滤掉可能的错误信息，只保留有效的版本号（不包含空格、特殊字符）
+          if [ -n "$APP_VERSION" ] && [[ ! "$APP_VERSION" =~ [[:space:]] ]] && [[ ! "$APP_VERSION" =~ [A-Za-z]{4,} ]]; then
             echo "version=$APP_VERSION" >> $GITHUB_OUTPUT
             echo "Detected APP_VERSION: $APP_VERSION"
           else
             DATE_TAG=$(date +%Y%m%d)
             echo "version=$DATE_TAG" >> $GITHUB_OUTPUT
-            echo "APP_VERSION not found, using date: $DATE_TAG"
+            echo "APP_VERSION not found or invalid, using date: $DATE_TAG"
           fi
 
       # 构建多平台镜像并推送到 DockerHub
