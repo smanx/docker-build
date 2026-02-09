@@ -1,14 +1,16 @@
-name: Huggingface Project Build
+name: Huggingface Project Build (Multi-Project)
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # 每天凌晨 0 点运行
     inputs:
       project_dir:
         description: 'Project directory name (relative to the cloned repository root)'
         required: true
         default: 'huggingface'
-      project_type:
-        description: 'Project type (determines image name and Dockerfile)'
+      project_types:
+        description: 'Select project types to build (multiple selections allowed)'
         required: true
         type: choice
         default: 'uptime'
@@ -16,10 +18,10 @@ on:
           - 'uptime'
           - 'openclaw'
           - 'other'
-      custom_name:
-        description: 'Custom project name (overrides project_type if set)'
+      custom_names:
+        description: 'Custom project names list (used when project_types is empty): my-uptime,my-claw,my-other'
         required: false
-        default: ''
+        default: 'uptime,openclaw'
       image_tag:
         description: 'Docker image tag'
         required: true
@@ -48,19 +50,59 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  # 预处理任务：解析多选项目并构建矩阵
+  setup:
     runs-on: ubuntu-latest
+    outputs:
+      project_matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          INPUT_TYPES="${{ github.event.inputs.project_types }}"
+          INPUT_NAMES="${{ github.event.inputs.custom_names }}"
+          
+          # 逻辑：当 project_types 为空时，使用 custom_names 作为项目列表
+          if [ -z "$INPUT_TYPES" ]; then
+            # 使用 custom_names 数组作为项目列表
+            if [ -n "$INPUT_NAMES" ]; then
+              PROJECTS=$(echo "$INPUT_NAMES" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | jq -R . | jq -s -c .)
+              echo "Using custom_names as project list: $PROJECTS"
+            else
+              echo "Error: Neither project_types nor custom_names is provided"
+              exit 1
+            fi
+          else
+            # 使用 project_types 作为项目列表
+            PROJECTS=$(echo "$INPUT_TYPES" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | jq -R . | jq -s -c .)
+            echo "Using project_types: $PROJECTS"
+          fi
+          
+          # 构建矩阵（custom_name 为空，因为项目名就是最终名称）
+          MATRIX=$(jq -n --argjson projects "$PROJECTS" \
+            '[$projects[] | {project_type: ., custom_name: ""}]')
+          
+          echo "Matrix: $MATRIX"
+          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+
+  build:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.setup.outputs.project_matrix) }}
+
     env:
-      PROJECT_NAME: ${{ github.event.inputs.project_dir }}
-      PROJECT_TYPE: ${{ github.event.inputs.project_type }}
-      CUSTOM_NAME: ${{ github.event.inputs.custom_name }}
+      PROJECT_DIR: ${{ github.event.inputs.project_dir }}
+      PROJECT_TYPE: ${{ matrix.project_type }}
+      CUSTOM_NAME: ${{ matrix.custom_name }}
       IMAGE_TAG: ${{ github.event.inputs.image_tag }}
-      REPO_URL: ${{ vars.REPO_URL }}        # 仓库URL变量
-      REPO_PATH: ${{ vars.REPO_PATH }}      # 仓库本地路径变量
+      REPO_URL: ${{ vars.REPO_URL }}
+      REPO_PATH: ${{ vars.REPO_PATH }}
       PUSH_TO_DOCKERHUB: ${{ github.event.inputs.push_to_dockerhub }}
       PUSH_TO_GHCR: ${{ github.event.inputs.push_to_ghcr }}
       BUILD_PLATFORMS: ${{ github.event.inputs.build_platforms }}
-      
+
     steps:
       # 拉取私有仓库代码（使用 GitHub PAT）
       - name: Pull project code
@@ -90,41 +132,48 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 设置镜像名称和Dockerfile
+      # 设置镜像名称和 Dockerfile（基于项目类型和自定义名称）
       - name: Set image name and Dockerfile based on project type
         run: |
-          if [ -n "${{ env.CUSTOM_NAME }}" ]; then
-            PROJECT_NAME="${{ env.CUSTOM_NAME }}"
+          PROJECT_TYPE="${{ env.PROJECT_TYPE }}"
+          CUSTOM_NAME="${{ env.CUSTOM_NAME }}"
+          
+          if [ -n "$CUSTOM_NAME" ]; then
+            PROJECT_NAME="$CUSTOM_NAME"
+            echo "Using custom name: $PROJECT_NAME"
           else
-            PROJECT_NAME="${{ env.PROJECT_TYPE }}"
+            PROJECT_NAME="$PROJECT_TYPE"
+            echo "Using project type: $PROJECT_NAME"
           fi
+          
           echo "IMAGE_NAME=smanx/${PROJECT_NAME}-hf" >> $GITHUB_ENV
           echo "DOCKERFILE=Dockerfile-${PROJECT_NAME}" >> $GITHUB_ENV
 
       # 检查 Dockerfile 是否存在
       - name: Check Dockerfile exists
         run: |
-          cd ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
+          cd ${{ env.REPO_PATH }}/${{ env.PROJECT_DIR }}
           if [ ! -f "${{ env.DOCKERFILE }}" ]; then
             echo "Error: Dockerfile ${{ env.DOCKERFILE }} does not exist in the project directory."
             exit 1
           fi
           echo "Using Dockerfile: ${{ env.DOCKERFILE }}"
-      
+
       # 构建 Docker 镜像（支持多平台）并推送到指定注册表
       - name: Build and push Docker image with tags
         run: |
-          cd ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
+          cd ${{ env.REPO_PATH }}/${{ env.PROJECT_DIR }}
           BUILD_TAGS=""
-          
+
           # 根据选择添加标签
           if [ "${{ env.PUSH_TO_DOCKERHUB }}" = "true" ]; then
             BUILD_TAGS="$BUILD_TAGS -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
           fi
-          
+
           if [ "${{ env.PUSH_TO_GHCR }}" = "true" ]; then
             BUILD_TAGS="$BUILD_TAGS -t ghcr.io/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
           fi
+
           # 如果至少选择了一个注册表，则构建和推送
           if [ -n "$BUILD_TAGS" ]; then
             docker buildx build \
@@ -139,13 +188,12 @@ jobs:
               --file ${{ env.DOCKERFILE }} \
               .
           fi
-          
 
       # 输出构建信息
       - name: Output build information
         run: |
-          echo "Build completed with the following settings:"
-          echo "Project directory: ${{ env.PROJECT_NAME }}"
+          echo "Build completed for project: ${{ matrix.project_type }}"
+          echo "Project directory: ${{ env.PROJECT_DIR }}"
           echo "Dockerfile: ${{ env.DOCKERFILE }}"
           echo "Image name: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
           echo "Push to DockerHub: ${{ env.PUSH_TO_DOCKERHUB }}"
