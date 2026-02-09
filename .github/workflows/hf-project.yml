@@ -2,8 +2,6 @@ name: Huggingface Project Build (Multi-Project)
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 0 * * *'  # 每天凌晨 0 点运行
     inputs:
       project_dir:
         description: 'Project directory name (relative to the cloned repository root)'
@@ -17,6 +15,8 @@ on:
         options:
           - 'uptime'
           - 'openclaw'
+          - 'new-api'
+          - 'cli-proxy-api'
           - 'other'
       custom_names:
         description: 'Custom project names list (used when project_types is empty): my-uptime,my-claw,my-other'
@@ -44,6 +44,8 @@ on:
           - 'linux/arm64'
           - 'linux/amd64,linux/arm64'
           - 'linux/amd64,linux/arm64,linux/arm/v7'
+  schedule:
+    - cron: '0 0 * * *'  # 每天凌晨 0 点运行
 
 permissions:
   packages: write
