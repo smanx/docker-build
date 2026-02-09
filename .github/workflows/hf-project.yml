@@ -15,6 +15,10 @@ on:
         options:
           - 'uptime'
           - 'other'
+      custom_name:
+        description: 'Custom project name (overrides project_type if set)'
+        required: false
+        default: ''
       image_tag:
         description: 'Docker image tag'
         required: true
@@ -48,6 +52,7 @@ jobs:
     env:
       PROJECT_NAME: ${{ github.event.inputs.project_dir }}
       PROJECT_TYPE: ${{ github.event.inputs.project_type }}
+      CUSTOM_NAME: ${{ github.event.inputs.custom_name }}
       IMAGE_TAG: ${{ github.event.inputs.image_tag }}
       REPO_URL: ${{ vars.REPO_URL }}        # 仓库URL变量
       REPO_PATH: ${{ vars.REPO_PATH }}      # 仓库本地路径变量
@@ -87,9 +92,13 @@ jobs:
       # 设置镜像名称和Dockerfile
       - name: Set image name and Dockerfile based on project type
         run: |
-          PROJECT_TYPE="${{ env.PROJECT_TYPE }}"
-          echo "IMAGE_NAME=smanx/${PROJECT_TYPE}-hf" >> $GITHUB_ENV
-          echo "DOCKERFILE=Dockerfile-${PROJECT_TYPE}" >> $GITHUB_ENV
+          if [ -n "${{ env.CUSTOM_NAME }}" ]; then
+            PROJECT_NAME="${{ env.CUSTOM_NAME }}"
+          else
+            PROJECT_NAME="${{ env.PROJECT_TYPE }}"
+          fi
+          echo "IMAGE_NAME=smanx/${PROJECT_NAME}-hf" >> $GITHUB_ENV
+          echo "DOCKERFILE=Dockerfile-${PROJECT_NAME}" >> $GITHUB_ENV
 
       # 检查 Dockerfile 是否存在
       - name: Check Dockerfile exists
