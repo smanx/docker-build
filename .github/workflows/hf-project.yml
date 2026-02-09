@@ -7,21 +7,11 @@ on:
         description: 'Project directory name (relative to the cloned repository root)'
         required: true
         default: 'huggingface'
-      project_types:
-        description: 'Select project types to build (multiple selections allowed)'
+      projects:
+        description: 'uptime,cli-proxy-api,new-api,openclaw,dbgate'
         required: true
-        type: choice
-        default: 'uptime'
-        options:
-          - 'uptime'
-          - 'openclaw'
-          - 'new-api'
-          - 'cli-proxy-api'
-          - 'other'
-      custom_names:
-        description: 'Custom project names list (used when project_types is empty): my-uptime,my-claw,my-other'
-        required: false
-        default: 'uptime,openclaw'
+        type: string
+        default: 'openclaw'
       image_tag:
         description: 'Docker image tag'
         required: true
@@ -60,28 +50,15 @@ jobs:
     steps:
       - id: set-matrix
         run: |
-          INPUT_TYPES="${{ github.event.inputs.project_types }}"
-          INPUT_NAMES="${{ github.event.inputs.custom_names }}"
+          INPUT_PROJECTS="${{ github.event.inputs.projects }}"
           
-          # 逻辑：当 project_types 为空时，使用 custom_names 作为项目列表
-          if [ -z "$INPUT_TYPES" ]; then
-            # 使用 custom_names 数组作为项目列表
-            if [ -n "$INPUT_NAMES" ]; then
-              PROJECTS=$(echo "$INPUT_NAMES" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | jq -R . | jq -s -c .)
-              echo "Using custom_names as project list: $PROJECTS"
-            else
-              echo "Error: Neither project_types nor custom_names is provided"
-              exit 1
-            fi
-          else
-            # 使用 project_types 作为项目列表
-            PROJECTS=$(echo "$INPUT_TYPES" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | jq -R . | jq -s -c .)
-            echo "Using project_types: $PROJECTS"
-          fi
+          # 处理项目列表，分割为数组
+          PROJECTS=$(echo "$INPUT_PROJECTS" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | jq -R . | jq -s -c .)
+          echo "Projects to build: $PROJECTS"
           
-          # 构建矩阵（custom_name 为空，因为项目名就是最终名称）
+          # 构建矩阵
           MATRIX=$(jq -n --argjson projects "$PROJECTS" \
-            '[$projects[] | {project_type: ., custom_name: ""}]')
+            '[$projects[] | {project_type: ., custom_name: ""}]' -c)
           
           echo "Matrix: $MATRIX"
           echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
