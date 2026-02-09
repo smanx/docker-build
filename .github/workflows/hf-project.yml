@@ -14,6 +14,7 @@ on:
         default: 'uptime'
         options:
           - 'uptime'
+          - 'openclaw'
           - 'other'
       custom_name:
         description: 'Custom project name (overrides project_type if set)'
@@ -30,7 +31,7 @@ on:
       push_to_ghcr:
         description: 'Push to GHCR'
         type: boolean
-        default: false
+        default: true
       build_platforms:
         description: 'Select build platforms'
         required: true
