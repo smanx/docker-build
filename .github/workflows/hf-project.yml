@@ -35,7 +35,7 @@ on:
           - 'linux/amd64,linux/arm64'
           - 'linux/amd64,linux/arm64,linux/arm/v7'
   schedule:
-    - cron: '0 0 * * *'  # 每天凌晨 0 点运行
+    - cron: '0 20 * * *'  # 每天凌晨 0 点运行
 
 permissions:
   packages: write
