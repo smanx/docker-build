@@ -71,8 +71,8 @@ jobs:
             echo "Extracted APP_VERSION from env: '$APP_VERSION'"
           fi
           
-          # 校验版本号是否有效：不为空、不包含空格、不包含长英文单词
-          if [ -n "$APP_VERSION" ] && [[ ! "$APP_VERSION" =~ [[:space:]] ]] && [[ ! "$APP_VERSION" =~ [A-Za-z]{4,} ]]; then
+          # 校验版本号是否有效：不为空、不包含空格
+          if [ -n "$APP_VERSION" ] && [[ ! "$APP_VERSION" =~ [[:space:]] ]]; then
             echo "version=$APP_VERSION" >> $GITHUB_OUTPUT
             echo "Detected APP_VERSION: $APP_VERSION"
           else
