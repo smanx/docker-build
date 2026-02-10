@@ -7,7 +7,7 @@ on:
         required: false
         default: '["openclaw"]'  # 可在仓库 Variables 中设置 DEFAULT_PROJECTS 变量来统一管理
   schedule:
-    - cron: '0 0 * * *'  # 每天的00:00触发
+    - cron: '0 18 * * *'  # 每天的00:00触发
   push:
     branches:
       - run
