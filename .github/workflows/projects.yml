@@ -13,11 +13,26 @@ on:
       - run
 
 jobs:
+  parse-projects:
+    runs-on: ubuntu-latest
+    outputs:
+      projects: ${{ steps.parse.outputs.projects }}
+    steps:
+      - name: Parse projects
+        id: parse
+        run: |
+          PROJECTS="${{ inputs.projects }}"
+          # 转换为 JSON 数组格式
+          JSON_ARRAY=$(echo "$PROJECTS" | sed 's/,/","/g' | sed 's/^/["/' | sed 's/$/"]/')
+          echo "projects=$JSON_ARRAY" >> $GITHUB_OUTPUT
+          echo "Parsed projects: $JSON_ARRAY"
+
   build:
+    needs: parse-projects
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        project: ${{ fromJson(format('["%s"]', replace(inputs.projects, ',', '","'))) }}
+        project: ${{ fromJson(needs.parse-projects.outputs.projects) }}
     env:
       IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.project }}
       REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
