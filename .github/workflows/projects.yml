@@ -5,7 +5,7 @@ on:
       projects:
         description: 'Comma-separated project names to build, e.g., "ouben1,ouben2,ouben3"'
         required: false
-        default: 'openclaw,nanobot'
+        default: 'openclaw,nanobot,open-auto-glm'
   schedule:
     - cron: '0 18 * * *'  # 每天的00:00触发
   push:
