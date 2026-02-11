@@ -43,7 +43,7 @@ permissions:
 
 env:
   DEFAULT_PROJECT_DIR: 'huggingface'
-  DEFAULT_PROJECTS: 'openclaw,dbgate'
+  DEFAULT_PROJECTS: 'cli-proxy-api,new-api,openclaw,dbgate'
   DEFAULT_IMAGE_TAG: 'latest'
   DEFAULT_PUSH_TO_DOCKERHUB: 'false'
   DEFAULT_PUSH_TO_GHCR: 'true'
