@@ -41,25 +41,62 @@ permissions:
   packages: write
   contents: read
 
+env:
+  DEFAULT_PROJECT_DIR: 'huggingface'
+  DEFAULT_PROJECTS: 'openclaw,dbgate'
+  DEFAULT_IMAGE_TAG: 'latest'
+  DEFAULT_PUSH_TO_DOCKERHUB: 'false'
+  DEFAULT_PUSH_TO_GHCR: 'true'
+  DEFAULT_BUILD_PLATFORMS: 'linux/amd64,linux/arm64'
+
 jobs:
   # 预处理任务：解析多选项目并构建矩阵
   setup:
     runs-on: ubuntu-latest
     outputs:
       project_matrix: ${{ steps.set-matrix.outputs.matrix }}
+      project_dir: ${{ steps.set-outputs.outputs.project_dir }}
+      image_tag: ${{ steps.set-outputs.outputs.image_tag }}
+      push_to_dockerhub: ${{ steps.set-outputs.outputs.push_to_dockerhub }}
+      push_to_ghcr: ${{ steps.set-outputs.outputs.push_to_ghcr }}
+      build_platforms: ${{ steps.set-outputs.outputs.build_platforms }}
     steps:
+      - id: set-outputs
+        run: |
+          # 设置默认值
+          PROJECT_DIR="${{ github.event.inputs.project_dir }}"
+          IMAGE_TAG="${{ github.event.inputs.image_tag }}"
+          PUSH_TO_DOCKERHUB="${{ github.event.inputs.push_to_dockerhub }}"
+          PUSH_TO_GHCR="${{ github.event.inputs.push_to_ghcr }}"
+          BUILD_PLATFORMS="${{ github.event.inputs.build_platforms }}"
+
+          # 如果为空，使用默认值
+          [ -z "$PROJECT_DIR" ] && PROJECT_DIR="${{ env.DEFAULT_PROJECT_DIR }}"
+          [ -z "$IMAGE_TAG" ] && IMAGE_TAG="${{ env.DEFAULT_IMAGE_TAG }}"
+          [ -z "$PUSH_TO_DOCKERHUB" ] && PUSH_TO_DOCKERHUB="${{ env.DEFAULT_PUSH_TO_DOCKERHUB }}"
+          [ -z "$PUSH_TO_GHCR" ] && PUSH_TO_GHCR="${{ env.DEFAULT_PUSH_TO_GHCR }}"
+          [ -z "$BUILD_PLATFORMS" ] && BUILD_PLATFORMS="${{ env.DEFAULT_BUILD_PLATFORMS }}"
+
+          echo "project_dir=$PROJECT_DIR" >> $GITHUB_OUTPUT
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "push_to_dockerhub=$PUSH_TO_DOCKERHUB" >> $GITHUB_OUTPUT
+          echo "push_to_ghcr=$PUSH_TO_GHCR" >> $GITHUB_OUTPUT
+          echo "build_platforms=$BUILD_PLATFORMS" >> $GITHUB_OUTPUT
+
       - id: set-matrix
         run: |
           INPUT_PROJECTS="${{ github.event.inputs.projects }}"
-          
+          # 如果为空，使用默认值
+          [ -z "$INPUT_PROJECTS" ] && INPUT_PROJECTS="${{ env.DEFAULT_PROJECTS }}"
+
           # 处理项目列表，分割为数组
           PROJECTS=$(echo "$INPUT_PROJECTS" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | jq -R . | jq -s -c .)
           echo "Projects to build: $PROJECTS"
-          
+
           # 构建矩阵
           MATRIX=$(jq -n --argjson projects "$PROJECTS" \
             '[$projects[] | {project_type: ., custom_name: ""}]' -c)
-          
+
           echo "Matrix: $MATRIX"
           echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
 
@@ -72,15 +109,15 @@ jobs:
         include: ${{ fromJson(needs.setup.outputs.project_matrix) }}
 
     env:
-      PROJECT_DIR: ${{ github.event.inputs.project_dir }}
+      PROJECT_DIR: ${{ needs.setup.outputs.project_dir }}
       PROJECT_TYPE: ${{ matrix.project_type }}
       CUSTOM_NAME: ${{ matrix.custom_name }}
-      IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+      IMAGE_TAG: ${{ needs.setup.outputs.image_tag }}
       REPO_URL: ${{ vars.REPO_URL }}
       REPO_PATH: ${{ vars.REPO_PATH }}
-      PUSH_TO_DOCKERHUB: ${{ github.event.inputs.push_to_dockerhub }}
-      PUSH_TO_GHCR: ${{ github.event.inputs.push_to_ghcr }}
-      BUILD_PLATFORMS: ${{ github.event.inputs.build_platforms }}
+      PUSH_TO_DOCKERHUB: ${{ needs.setup.outputs.push_to_dockerhub }}
+      PUSH_TO_GHCR: ${{ needs.setup.outputs.push_to_ghcr }}
+      BUILD_PLATFORMS: ${{ needs.setup.outputs.build_platforms }}
 
     steps:
       # 拉取私有仓库代码（使用 GitHub PAT）
