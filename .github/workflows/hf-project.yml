@@ -9,7 +9,7 @@ on:
         default: 'huggingface'
       projects:
         description: 'uptime,cli-proxy-api,new-api,openclaw,dbgate'
-        required: true
+        required: false
         type: string
         default: 'openclaw,dbgate'
       image_tag:
