@@ -12,6 +12,9 @@ on:
     branches:
       - run
 
+env:
+  DEFAULT_PROJECTS: 'openclaw,nanobot,open-auto-glm'
+
 jobs:
   parse-projects:
     runs-on: ubuntu-latest
@@ -22,6 +25,11 @@ jobs:
         id: parse
         run: |
           PROJECTS="${{ inputs.projects }}"
+          # 如果 inputs.projects 为空，使用默认值
+          if [ -z "$PROJECTS" ]; then
+            PROJECTS="${{ env.DEFAULT_PROJECTS }}"
+            echo "No projects input provided, using default: $PROJECTS"
+          fi
           # 转换为 JSON 数组格式
           JSON_ARRAY=$(echo "$PROJECTS" | sed 's/,/","/g' | sed 's/^/["/' | sed 's/$/"]/')
           echo "projects=$JSON_ARRAY" >> $GITHUB_OUTPUT
