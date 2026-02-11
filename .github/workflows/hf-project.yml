@@ -11,7 +11,7 @@ on:
         description: 'uptime,cli-proxy-api,new-api,openclaw,dbgate'
         required: false
         type: string
-        default: 'openclaw,dbgate'
+        default: 'cli-proxy-api,new-api,openclaw,dbgate'
       image_tag:
         description: 'Docker image tag'
         required: true
