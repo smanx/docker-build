@@ -28,7 +28,7 @@ on:
         description: 'Select build platforms'
         required: true
         type: choice
-        default: 'linux/amd64,linux/arm64'
+        default: 'linux/amd64'
         options:
           - 'linux/amd64'
           - 'linux/arm64'
@@ -47,7 +47,7 @@ env:
   DEFAULT_IMAGE_TAG: 'latest'
   DEFAULT_PUSH_TO_DOCKERHUB: 'false'
   DEFAULT_PUSH_TO_GHCR: 'true'
-  DEFAULT_BUILD_PLATFORMS: 'linux/amd64,linux/arm64'
+  DEFAULT_BUILD_PLATFORMS: 'linux/amd64'
 
 jobs:
   # 预处理任务：解析多选项目并构建矩阵
