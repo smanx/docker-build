@@ -8,10 +8,10 @@ on:
         required: true
         default: 'huggingface'
       projects:
-        description: 'uptime,cli-proxy-api,new-api,openclaw,dbgate'
+        description: 'uptime,cli-proxy-api,new-api,openclaw,dbgate,open-webui,ubuntu'
         required: false
         type: string
-        default: 'cli-proxy-api,new-api,openclaw,dbgate,open-webui'
+        default: 'cli-proxy-api,new-api,openclaw,dbgate,open-webui,ubuntu'
       image_tag:
         description: 'Docker image tag'
         required: true
@@ -43,7 +43,7 @@ permissions:
 
 env:
   DEFAULT_PROJECT_DIR: 'huggingface'
-  DEFAULT_PROJECTS: 'cli-proxy-api,new-api,openclaw,dbgate,open-webui'
+  DEFAULT_PROJECTS: 'cli-proxy-api,new-api,openclaw,dbgate,open-webui,ubuntu'
   DEFAULT_IMAGE_TAG: 'latest'
   DEFAULT_PUSH_TO_DOCKERHUB: 'false'
   DEFAULT_PUSH_TO_GHCR: 'true'
