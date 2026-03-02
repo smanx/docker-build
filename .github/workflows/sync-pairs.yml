@@ -6,14 +6,17 @@ on:
       user_a:
         description: '用户名 A（仓库A）'
         required: true
+        default: 'smanx'
         type: string
       user_b:
         description: '用户名 B（仓库B）'
         required: true
+        default: 'joeferen'
         type: string
       repo_list:
         description: '仓库名列表（英文逗号分隔）'
         required: true
+        default: 'docker-build,docker-project,openai-zhuce'
         type: string
       merge_strategy:
         description: '冲突合并策略'
