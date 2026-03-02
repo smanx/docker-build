@@ -53,7 +53,9 @@ jobs:
         id: parse
         run: |
           # 分割逗号分隔的仓库名，自动去空格、过滤空值，生成标准JSON矩阵
-          REPO_JSON=$(echo "${{ inputs.repo_list }}" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | awk 'NF' | jq -R -s -c 'split("\n") | map({repo_name: ., repo_a: "${{ inputs.user_a }}/" + ., repo_b: "${{ inputs.user_b }}/" + .})')
+          USER_A="${{ inputs.user_a }}"
+          USER_B="${{ inputs.user_b }}"
+          REPO_JSON=$(echo "${{ inputs.repo_list }}" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | awk 'NF' | jq -R -s -c --arg ua "$USER_A" --arg ub "$USER_B" 'split("\n") | map({repo_name: ., repo_a: ($ua + "/" + .), repo_b: ($ub + "/" + .)})')
           echo "matrix=$REPO_JSON" >> $GITHUB_OUTPUT
           echo "✅ 成功解析 $(echo "$REPO_JSON" | jq length) 个仓库"
 
