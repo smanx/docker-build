@@ -1,6 +1,8 @@
 name: Sync Repo Pairs (No-Force Safe Sync)
 
 on:
+  schedule:
+    - cron: '0 */6 * * *'  # 每6小时执行一次
   workflow_dispatch:
     inputs:
       user_a:
@@ -41,6 +43,13 @@ on:
 env:
   TOKEN_A: ${{ secrets.TOKEN_A }}
   TOKEN_B: ${{ secrets.TOKEN_B }}
+  # 定时任务默认值
+  DEFAULT_USER_A: 'smanx'
+  DEFAULT_USER_B: 'joeferen'
+  DEFAULT_REPO_LIST: 'docker-build,docker-project,openai-zhuce'
+  DEFAULT_MERGE_STRATEGY: 'auto'
+  DEFAULT_SYNC_TAGS: 'true'
+  DEFAULT_TIMEOUT: '30'
 
 jobs:
   # 解析仓库列表，生成并行执行矩阵
@@ -53,9 +62,10 @@ jobs:
         id: parse
         run: |
           # 分割逗号分隔的仓库名，自动去空格、过滤空值，生成标准JSON矩阵
-          USER_A="${{ inputs.user_a }}"
-          USER_B="${{ inputs.user_b }}"
-          REPO_JSON=$(echo "${{ inputs.repo_list }}" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | awk 'NF' | jq -R -s -c --arg ua "$USER_A" --arg ub "$USER_B" 'split("\n") | map(select(length > 0)) | map({repo_name: ., repo_a: ($ua + "/" + .), repo_b: ($ub + "/" + .)})')
+          USER_A="${{ inputs.user_a || env.DEFAULT_USER_A }}"
+          USER_B="${{ inputs.user_b || env.DEFAULT_USER_B }}"
+          REPO_LIST="${{ inputs.repo_list || env.DEFAULT_REPO_LIST }}"
+          REPO_JSON=$(echo "$REPO_LIST" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | awk 'NF' | jq -R -s -c --arg ua "$USER_A" --arg ub "$USER_B" 'split("\n") | map(select(length > 0)) | map({repo_name: ., repo_a: ($ua + "/" + .), repo_b: ($ub + "/" + .)})')
           echo "matrix=$REPO_JSON" >> $GITHUB_OUTPUT
           echo "✅ 成功解析 $(echo "$REPO_JSON" | jq length) 个仓库"
 
@@ -63,7 +73,7 @@ jobs:
   sync-repo:
     needs: parse-repos
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes) }}
+    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes || env.DEFAULT_TIMEOUT) }}
     strategy:
       fail-fast: false  # 单个仓库失败不影响其他仓库同步
       matrix:
@@ -85,7 +95,7 @@ jobs:
           echo "仓库名: ${{ matrix.repo.repo_name }}"
           echo "仓库A: ${{ matrix.repo.repo_a }}"
           echo "仓库B: ${{ matrix.repo.repo_b }}"
-          echo "冲突策略: ${{ inputs.merge_strategy }}"
+          echo "冲突策略: ${{ inputs.merge_strategy || env.DEFAULT_MERGE_STRATEGY }}"
           echo "====================================="
 
       - name: 初始化本地仓库 & 配置双远程
@@ -129,7 +139,7 @@ jobs:
           echo "repo_b_exists=$REPO_B_EXISTS" >> $GITHUB_OUTPUT
           
           # 同步Tags（按需开启）
-          if [ "${{ inputs.sync_tags }}" = "true" ]; then
+          if [ "${{ inputs.sync_tags || env.DEFAULT_SYNC_TAGS }}" = "true" ]; then
             [ $REPO_A_EXISTS -eq 1 ] && git fetch repo_a --tags 2>/dev/null
             [ $REPO_B_EXISTS -eq 1 ] && git fetch repo_b --tags 2>/dev/null
           fi
@@ -192,7 +202,7 @@ jobs:
             # 执行合并，按策略处理冲突
             if ! git merge repo_a/$BRANCH -m "chore: sync merge from ${{ matrix.repo.repo_a }} $BRANCH"; then
               echo "⚠️  合并出现冲突，按策略处理"
-              case "${{ inputs.merge_strategy }}" in
+              case "${{ inputs.merge_strategy || env.DEFAULT_MERGE_STRATEGY }}" in
                 ours)
                   git merge --strategy-option=ours repo_a/$BRANCH -m "chore: resolve conflict (keep repo B content)"
                   echo "✅ 冲突已解决，保留仓库B的内容"
@@ -224,7 +234,7 @@ jobs:
           cd sync-repo
           echo "📤 推送到仓库A: ${{ matrix.repo.repo_a }}"
           git push repo_a --all
-          [ "${{ inputs.sync_tags }}" = "true" ] && git push repo_a --tags
+          [ "${{ inputs.sync_tags || env.DEFAULT_SYNC_TAGS }}" = "true" ] && git push repo_a --tags
           echo "✅ 仓库A推送完成"
 
       - name: 推送到仓库B（无强制）
@@ -233,7 +243,7 @@ jobs:
           cd sync-repo
           echo "📤 推送到仓库B: ${{ matrix.repo.repo_b }}"
           git push repo_b --all
-          [ "${{ inputs.sync_tags }}" = "true" ] && git push repo_b --tags
+          [ "${{ inputs.sync_tags || env.DEFAULT_SYNC_TAGS }}" = "true" ] && git push repo_b --tags
           echo "✅ 仓库B推送完成"
 
       - name: 同步完成报告
