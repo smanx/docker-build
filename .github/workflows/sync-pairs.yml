@@ -141,18 +141,36 @@ jobs:
         env:
           TOKEN_B: ${{ secrets.TOKEN_B }}
         run: |
+          echo "🔍 检测仓库 ${{ matrix.config.repo_b }} 状态..."
+          
+          # 调试：检查 TOKEN_B 是否设置
+          if [ -z "$TOKEN_B" ]; then
+            echo "❌ 错误：TOKEN_B 未设置！"
+            echo "repo_b_status=error" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          echo "✅ TOKEN_B 已设置（长度：${#TOKEN_B}）"
+          
           # 尝试获取仓库 B 的分支信息
           set +e
           BRANCHES=$(git ls-remote --heads https://x-access-token:${TOKEN_B}@github.com/${{ matrix.config.repo_b }}.git 2>&1)
           EXIT_CODE=$?
           set -e
           
+          echo "检测退出码: $EXIT_CODE"
+          echo "检测输出行数: $(echo "$BRANCHES" | wc -l)"
           echo "检测输出: $BRANCHES"
-          echo "退出码: $EXIT_CODE"
           
-          if [ $EXIT_CODE -ne 0 ] && echo "$BRANCHES" | grep -qi "not found\|repository not found\|404"; then
-            echo "❌ 仓库B不存在"
-            echo "repo_b_status=not_found" >> $GITHUB_OUTPUT
+          # 判断仓库状态
+          if [ $EXIT_CODE -ne 0 ]; then
+            if echo "$BRANCHES" | grep -qi "not found\|repository not found\|404"; then
+              echo "❌ 仓库B不存在"
+              echo "repo_b_status=not_found" >> $GITHUB_OUTPUT
+            else
+              # 其他错误（如权限问题），仍然尝试推送
+              echo "⚠️  检测出错但仓库可能存在，将尝试推送"
+              echo "repo_b_status=empty" >> $GITHUB_OUTPUT
+            fi
           elif [ -z "$BRANCHES" ] || ! echo "$BRANCHES" | grep -q "refs/heads"; then
             echo "⚠️  仓库B为空仓库，将直接推送仓库A的内容"
             echo "repo_b_status=empty" >> $GITHUB_OUTPUT
