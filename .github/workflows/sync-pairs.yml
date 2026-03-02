@@ -160,23 +160,22 @@ jobs:
           fi
         working-directory: repo_a
 
-      - name: 🔀 双向合并分支
+      - name: 🔀 单向覆盖（A → B）
         if: env.repo_b_empty != 'true'
         run: |
-          echo "🔄 开始双向合并分支..."
+          echo "🔄 开始单向覆盖合并..."
           CONFLICT_COUNT=0
           
           # 获取仓库 B 的所有分支
           BRANCHES_B=$(git branch -r --list 'repo_b/*' | sed 's|repo_b/||' | grep -v 'HEAD')
           
-          # 第一步：B → A 合并
-          echo "📥 B → A 合并..."
+          # 将 B 的同名分支合并到 A（以便获取 B 的历史记录）
+          echo "📥 合并 B 的同名分支到 A..."
           for branch in $BRANCHES_B; do
-            echo "  → $branch"
-            
             if git show-ref --verify --quiet refs/heads/$branch; then
+              echo "  → $branch（合并 B 的改动）"
               git checkout $branch
-              if ! git merge repo_b/$branch -m "chore: sync from ${{ matrix.config.repo_b }}/$branch"; then
+              if ! git merge repo_b/$branch -m "chore: merge from ${{ matrix.config.repo_b }}/$branch"; then
                 echo "  ⚠️ 冲突！按策略处理..."
                 case "${{ matrix.config.strategy }}" in
                   ours)   git merge --strategy-option=ours repo_b/$branch ;;
@@ -185,16 +184,9 @@ jobs:
                 esac
               fi
             else
+              # B 独有的分支，拉取到 A（推送时会同步回 B）
               git checkout -b $branch repo_b/$branch
-              echo "  ✨ 新建分支: $branch（来自 B）"
-            fi
-          done
-          
-          # 第二步：A → B 同步（A 中有但 B 中没有的分支）
-          echo "📤 A → B 同步..."
-          for branch in $(git branch --format='%(refname:short)'); do
-            if ! echo "$BRANCHES_B" | grep -q "^$branch$"; then
-              echo "  → $branch（A 独有，将同步到 B）"
+              echo "  ✨ 保留 B 独有分支: $branch"
             fi
           done
           
