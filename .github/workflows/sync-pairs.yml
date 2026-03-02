@@ -139,9 +139,16 @@ jobs:
       - name: 📥 克隆仓库B到临时目录
         run: |
           git clone https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git repo_b
-          # 允许推送到当前检出的分支（解决 non-bare repository 推送限制）
           cd repo_b
           git config receive.denyCurrentBranch ignore
+          
+          # 检测是否为空仓库
+          if [ -z "$(git branch -r 2>/dev/null)" ] && [ -z "$(git branch 2>/dev/null | grep -v HEAD)" ]; then
+            echo "⚠️  仓库B为空仓库，将直接推送仓库A的内容"
+            echo "repo_b_empty=true" >> $GITHUB_ENV
+          else
+            echo "repo_b_empty=false" >> $GITHUB_ENV
+          fi
         working-directory: .
 
       - name: 🔗 添加远程并拉取所有引用
@@ -153,12 +160,18 @@ jobs:
           fi
         working-directory: repo_a
 
-      - name: 🔀 合并所有分支（B → A）
+      - name: 🔀 双向合并分支
+        if: env.repo_b_empty != 'true'
         run: |
-          echo "🔄 开始合并分支..."
+          echo "🔄 开始双向合并分支..."
           CONFLICT_COUNT=0
           
-          for branch in $(git branch -r --list 'repo_b/*' | sed 's|repo_b/||' | grep -v 'HEAD'); do
+          # 获取仓库 B 的所有分支
+          BRANCHES_B=$(git branch -r --list 'repo_b/*' | sed 's|repo_b/||' | grep -v 'HEAD')
+          
+          # 第一步：B → A 合并
+          echo "📥 B → A 合并..."
+          for branch in $BRANCHES_B; do
             echo "  → $branch"
             
             if git show-ref --verify --quiet refs/heads/$branch; then
@@ -168,12 +181,20 @@ jobs:
                 case "${{ matrix.config.strategy }}" in
                   ours)   git merge --strategy-option=ours repo_b/$branch ;;
                   theirs) git merge --strategy-option=theirs repo_b/$branch ;;
-                  *)      CONFLICT_COUNT=$((CONFLICT_COUNT+1)) ;;
+                  *)      CONFLICT_COUNT=$((CONFLICT_COUNT+1)) ; git merge --abort ;;
                 esac
               fi
             else
               git checkout -b $branch repo_b/$branch
-              echo "  ✨ 新建分支: $branch"
+              echo "  ✨ 新建分支: $branch（来自 B）"
+            fi
+          done
+          
+          # 第二步：A → B 同步（A 中有但 B 中没有的分支）
+          echo "📤 A → B 同步..."
+          for branch in $(git branch --format='%(refname:short)'); do
+            if ! echo "$BRANCHES_B" | grep -q "^$branch$"; then
+              echo "  → $branch（A 独有，将同步到 B）"
             fi
           done
           
