@@ -89,6 +89,7 @@ jobs:
           echo "====================================="
 
       - name: 初始化本地仓库 & 配置双远程
+        id: init
         run: |
           # 初始化空本地仓库，无需重复克隆两个远程仓库
           git init sync-repo
@@ -98,28 +99,61 @@ jobs:
           git remote add repo_a https://x-access-token:${{ env.TOKEN_A }}@github.com/${{ matrix.repo.repo_a }}.git
           git remote add repo_b https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.repo.repo_b }}.git
           
-          # 拉取两个仓库的全部分支与提交历史
-          git fetch repo_a --prune
-          git fetch repo_b --prune
+          # 拉取两个仓库的全部分支与提交历史（允许失败以处理仓库不存在的情况）
+          REPO_A_EXISTS=0
+          REPO_B_EXISTS=0
+          
+          if git fetch repo_a --prune 2>/dev/null; then
+            REPO_A_EXISTS=1
+            echo "✅ 仓库A存在: ${{ matrix.repo.repo_a }}"
+          else
+            echo "⚠️  仓库A不存在: ${{ matrix.repo.repo_a }}"
+          fi
+          
+          if git fetch repo_b --prune 2>/dev/null; then
+            REPO_B_EXISTS=1
+            echo "✅ 仓库B存在: ${{ matrix.repo.repo_b }}"
+          else
+            echo "⚠️  仓库B不存在: ${{ matrix.repo.repo_b }}"
+          fi
+          
+          # 两个仓库都不存在，标记跳过
+          if [ $REPO_A_EXISTS -eq 0 ] && [ $REPO_B_EXISTS -eq 0 ]; then
+            echo "❌ 两个仓库都不存在，跳过同步"
+            echo "skip_sync=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "skip_sync=false" >> $GITHUB_OUTPUT
+          echo "repo_a_exists=$REPO_A_EXISTS" >> $GITHUB_OUTPUT
+          echo "repo_b_exists=$REPO_B_EXISTS" >> $GITHUB_OUTPUT
           
           # 同步Tags（按需开启）
           if [ "${{ inputs.sync_tags }}" = "true" ]; then
-            git fetch repo_a --tags
-            git fetch repo_b --tags
+            [ $REPO_A_EXISTS -eq 1 ] && git fetch repo_a --tags 2>/dev/null
+            [ $REPO_B_EXISTS -eq 1 ] && git fetch repo_b --tags 2>/dev/null
           fi
 
       - name: 执行分支合并（无强制）
         id: merge
+        if: steps.init.outputs.skip_sync != 'true'
         run: |
           cd sync-repo
           CONFLICT_FLAG=0
           
           # 获取两个仓库的全部分支名
-          BRANCHES_A=$(git branch -r | grep 'repo_a/' | sed 's|repo_a/||' | grep -v 'HEAD')
-          BRANCHES_B=$(git branch -r | grep 'repo_b/' | sed 's|repo_b/||' | grep -v 'HEAD')
-          ALL_BRANCHES=$(echo -e "$BRANCHES_A\n$BRANCHES_B" | sort | uniq)
+          BRANCHES_A=$(git branch -r | grep 'repo_a/' | sed 's|repo_a/||' | grep -v 'HEAD' || true)
+          BRANCHES_B=$(git branch -r | grep 'repo_b/' | sed 's|repo_b/||' | grep -v 'HEAD' || true)
+          ALL_BRANCHES=$(echo -e "$BRANCHES_A\n$BRANCHES_B" | grep -v '^$' | sort | uniq)
 
           echo "📝 待处理分支列表: $ALL_BRANCHES"
+          
+          # 如果没有分支，跳过
+          if [ -z "$ALL_BRANCHES" ]; then
+            echo "⚠️  没有找到任何分支"
+            echo "conflict_flag=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
           # 遍历所有分支，按规则处理
           for BRANCH in $ALL_BRANCHES; do
@@ -174,7 +208,7 @@ jobs:
           fi
 
       - name: 推送到仓库A（无强制）
-        if: steps.merge.outputs.conflict_flag == 0
+        if: steps.init.outputs.skip_sync != 'true' && steps.init.outputs.repo_a_exists == '1' && steps.merge.outputs.conflict_flag == 0
         run: |
           cd sync-repo
           echo "📤 推送到仓库A: ${{ matrix.repo.repo_a }}"
@@ -183,7 +217,7 @@ jobs:
           echo "✅ 仓库A推送完成"
 
       - name: 推送到仓库B（无强制）
-        if: steps.merge.outputs.conflict_flag == 0
+        if: steps.init.outputs.skip_sync != 'true' && steps.init.outputs.repo_b_exists == '1' && steps.merge.outputs.conflict_flag == 0
         run: |
           cd sync-repo
           echo "📤 推送到仓库B: ${{ matrix.repo.repo_b }}"
@@ -192,7 +226,7 @@ jobs:
           echo "✅ 仓库B推送完成"
 
       - name: 同步完成报告
-        if: success()
+        if: success() && steps.init.outputs.skip_sync != 'true'
         run: |
           echo "====================================="
           echo "🎉 仓库 ${{ matrix.repo.repo_name }} 同步完成"
