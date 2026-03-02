@@ -90,7 +90,7 @@ jobs:
   sync-pair:
     needs: parse-repos
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.timeout_minutes }}
+    timeout-minutes: 30
     permissions:
       contents: write
     strategy:
