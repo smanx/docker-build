@@ -63,7 +63,7 @@ jobs:
   sync-repo:
     needs: parse-repos
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.timeout_minutes }}
+    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes) }}
     strategy:
       fail-fast: false  # 单个仓库失败不影响其他仓库同步
       matrix:
