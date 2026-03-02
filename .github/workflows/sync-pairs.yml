@@ -37,7 +37,7 @@ on:
       timeout_minutes:
         description: '单仓库同步超时时间（分钟）'
         required: false
-        default: '30'
+        default: 30
         type: number
 
 env:
@@ -49,7 +49,7 @@ env:
   DEFAULT_REPO_LIST: 'docker-build,docker-project,openai-zhuce'
   DEFAULT_MERGE_STRATEGY: 'auto'
   DEFAULT_SYNC_TAGS: 'true'
-  DEFAULT_TIMEOUT: '30'
+  DEFAULT_TIMEOUT: 30
 
 jobs:
   # 解析仓库列表，生成并行执行矩阵
@@ -73,7 +73,7 @@ jobs:
   sync-repo:
     needs: parse-repos
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes || env.DEFAULT_TIMEOUT) }}
+    timeout-minutes: ${{ inputs.timeout_minutes || 30 }}
     strategy:
       fail-fast: false  # 单个仓库失败不影响其他仓库同步
       matrix:
