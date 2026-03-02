@@ -34,6 +34,12 @@ jobs:
           # 设置默认值
           [ -z "$DOCKER_IMAGES" ] && DOCKER_IMAGES="${{ vars.DOCKER_IMAGES_PULL }}"
 
+          # 如果镜像列表为空则提前结束
+          if [ -z "${DOCKER_IMAGES//[[:space:]]/}" ]; then
+            echo "DOCKER_IMAGES 为空，结束流程"
+            exit 0
+          fi
+
           # 将逗号分隔的镜像列表转换为换行分隔
           echo "$DOCKER_IMAGES" | tr ',' '\n' | tr -d '\r' > images.txt
 
