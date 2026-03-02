@@ -227,8 +227,14 @@ jobs:
           FLAG=""
           [ "${{ inputs.force_push }}" = "true" ] && FLAG="--force"
           echo "→ 推送 ${{ matrix.config.repo_b }} ..."
-          # 直接推送到 GitHub 远程仓库
-          git remote set-url repo_b https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git
+          
+          # 确保 repo_b remote 存在并指向正确的 GitHub 地址
+          if git remote | grep -q "^repo_b$"; then
+            git remote set-url repo_b https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git
+          else
+            git remote add repo_b https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git
+          fi
+          
           git push $FLAG repo_b --all
           [ "${{ inputs.sync_tags }}" = "true" ] && git push $FLAG repo_b --tags
         working-directory: repo_a
