@@ -138,20 +138,25 @@ jobs:
 
       - name: 📥 克隆仓库B到临时目录
         run: |
-          git clone https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git repo_b
-          cd repo_b
-          git config receive.denyCurrentBranch ignore
+          git clone https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git repo_b || true
           
           # 检测是否为空仓库
-          if [ -z "$(git branch -r 2>/dev/null)" ] && [ -z "$(git branch 2>/dev/null | grep -v HEAD)" ]; then
+          cd repo_b 2>/dev/null || true
+          if [ ! -d ".git" ] && [ ! -f "HEAD" ]; then
+            echo "⚠️  仓库B不存在或无法访问"
+            echo "repo_b_empty=true" >> $GITHUB_ENV
+          elif [ -z "$(git branch -r 2>/dev/null)" ] && [ -z "$(git branch 2>/dev/null | grep -v HEAD)" ]; then
             echo "⚠️  仓库B为空仓库，将直接推送仓库A的内容"
             echo "repo_b_empty=true" >> $GITHUB_ENV
           else
+            echo "✅ 仓库B有内容，需要合并"
             echo "repo_b_empty=false" >> $GITHUB_ENV
+            git config receive.denyCurrentBranch ignore
           fi
         working-directory: .
 
       - name: 🔗 添加远程并拉取所有引用
+        if: env.repo_b_empty != 'true'
         run: |
           git remote add repo_b ../repo_b
           git fetch repo_b '+refs/heads/*:refs/remotes/repo_b/*'
@@ -213,30 +218,21 @@ jobs:
 
       - name: 📤 推送到仓库A
         run: |
-          FLAG=""
-          [ "${{ inputs.force_push }}" = "true" ] && FLAG="--force"
           echo "→ 推送 ${{ matrix.config.repo_a }} ..."
-          git push $FLAG origin --all
-          [ "${{ inputs.sync_tags }}" = "true" ] && git push $FLAG origin --tags
+          git push origin --all
+          [ "${{ inputs.sync_tags }}" = "true" ] && git push origin --tags
         working-directory: repo_a
-        env:
-          GIT_ASKPASS: /bin/echo
 
       - name: 📤 推送到仓库B
         run: |
-          FLAG=""
-          [ "${{ inputs.force_push }}" = "true" ] && FLAG="--force"
           echo "→ 推送 ${{ matrix.config.repo_b }} ..."
           
-          # 确保 repo_b remote 存在并指向正确的 GitHub 地址
-          if git remote | grep -q "^repo_b$"; then
-            git remote set-url repo_b https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git
-          else
-            git remote add repo_b https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git
-          fi
+          # 添加远程仓库 B（直接指向 GitHub）
+          git remote add repo_b https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git 2>/dev/null || \
+          git remote set-url repo_b https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git
           
-          git push $FLAG repo_b --all
-          [ "${{ inputs.sync_tags }}" = "true" ] && git push $FLAG repo_b --tags
+          git push repo_b --all
+          [ "${{ inputs.sync_tags }}" = "true" ] && git push repo_b --tags
         working-directory: repo_a
 
       - name: 📊 输出同步报告
