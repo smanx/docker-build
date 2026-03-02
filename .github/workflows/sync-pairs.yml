@@ -138,14 +138,22 @@ jobs:
 
       - name: 📥 检测仓库B状态
         id: check_repo_b
+        env:
+          TOKEN_B: ${{ secrets.TOKEN_B }}
         run: |
           # 尝试获取仓库 B 的分支信息
-          BRANCHES=$(git ls-remote --heads https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git 2>&1) || true
+          set +e
+          BRANCHES=$(git ls-remote --heads https://x-access-token:${TOKEN_B}@github.com/${{ matrix.config.repo_b }}.git 2>&1)
+          EXIT_CODE=$?
+          set -e
           
-          if echo "$BRANCHES" | grep -q "Repository not found"; then
+          echo "检测输出: $BRANCHES"
+          echo "退出码: $EXIT_CODE"
+          
+          if [ $EXIT_CODE -ne 0 ] && echo "$BRANCHES" | grep -qi "not found\|repository not found\|404"; then
             echo "❌ 仓库B不存在"
             echo "repo_b_status=not_found" >> $GITHUB_OUTPUT
-          elif [ -z "$BRANCHES" ] || [ "$(echo "$BRANCHES" | wc -l)" -eq 0 ]; then
+          elif [ -z "$BRANCHES" ] || ! echo "$BRANCHES" | grep -q "refs/heads"; then
             echo "⚠️  仓库B为空仓库，将直接推送仓库A的内容"
             echo "repo_b_status=empty" >> $GITHUB_OUTPUT
           else
@@ -156,8 +164,10 @@ jobs:
 
       - name: 📥 克隆仓库B（非空仓库）
         if: steps.check_repo_b.outputs.repo_b_status == 'has_content'
+        env:
+          TOKEN_B: ${{ secrets.TOKEN_B }}
         run: |
-          git clone https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git repo_b
+          git clone https://x-access-token:${TOKEN_B}@github.com/${{ matrix.config.repo_b }}.git repo_b
           cd repo_b
           git config receive.denyCurrentBranch ignore
         working-directory: .
@@ -232,12 +242,21 @@ jobs:
 
       - name: 📤 推送到仓库B
         if: steps.check_repo_b.outputs.repo_b_status != 'not_found'
+        env:
+          TOKEN_B: ${{ secrets.TOKEN_B }}
         run: |
           echo "→ 推送 ${{ matrix.config.repo_b }} ..."
           
+          # 调试：检查 TOKEN_B 是否设置
+          if [ -z "$TOKEN_B" ]; then
+            echo "❌ 错误：TOKEN_B 未设置！"
+            exit 1
+          fi
+          echo "✅ TOKEN_B 已设置（长度：${#TOKEN_B}）"
+          
           # 添加远程仓库 B（直接指向 GitHub）
-          git remote add repo_b_remote https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git 2>/dev/null || \
-          git remote set-url repo_b_remote https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git
+          git remote add repo_b_remote https://x-access-token:${TOKEN_B}@github.com/${{ matrix.config.repo_b }}.git 2>/dev/null || \
+          git remote set-url repo_b_remote https://x-access-token:${TOKEN_B}@github.com/${{ matrix.config.repo_b }}.git
           
           git push repo_b_remote --all
           [ "${{ inputs.sync_tags }}" = "true" ] && git push repo_b_remote --tags
