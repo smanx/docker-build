@@ -140,12 +140,18 @@ jobs:
         id: check_repo_b
         run: |
           # 尝试获取仓库 B 的分支信息
-          BRANCHES=$(git ls-remote --heads https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git 2>&1) || true
+          set +e
+          BRANCHES=$(git ls-remote --heads https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git 2>&1)
+          EXIT_CODE=$?
+          set -e
           
-          if echo "$BRANCHES" | grep -q "Repository not found"; then
+          echo "检测输出: $BRANCHES"
+          echo "退出码: $EXIT_CODE"
+          
+          if [ $EXIT_CODE -ne 0 ] && echo "$BRANCHES" | grep -qi "not found\|repository not found\|404"; then
             echo "❌ 仓库B不存在"
             echo "repo_b_status=not_found" >> $GITHUB_OUTPUT
-          elif [ -z "$BRANCHES" ] || [ "$(echo "$BRANCHES" | wc -l)" -eq 0 ]; then
+          elif [ -z "$BRANCHES" ] || ! echo "$BRANCHES" | grep -q "refs/heads"; then
             echo "⚠️  仓库B为空仓库，将直接推送仓库A的内容"
             echo "repo_b_status=empty" >> $GITHUB_OUTPUT
           else
