@@ -1,43 +1,36 @@
-name: Sync Repo Pairs (Comma List)
+name: Sync Repo Pairs (No-Force Safe Sync)
 
 on:
   workflow_dispatch:
     inputs:
       user_a:
-        description: '用户名 A（源仓库）'
+        description: '用户名 A（仓库A）'
         required: true
-        default: 'smanx'
         type: string
       user_b:
-        description: '用户名 B（目标仓库）'
+        description: '用户名 B（仓库B）'
         required: true
-        default: 'joeferen'
         type: string
       repo_list:
-        description: '仓库名列表（用逗号 , 分隔）'
+        description: '仓库名列表（英文逗号分隔）'
         required: true
-        default: 'docker-build,docker-project,openai-zhuce'
         type: string
       merge_strategy:
-        description: '合并冲突策略'
+        description: '冲突合并策略'
         required: false
         default: 'auto'
         type: choice
-        options: ['ours', 'theirs', 'auto']
-      force_push:
-        description: '强制推送（--force）'
-        required: false
-        default: 'false'
-        type: choice
-        options: ['true', 'false']
+        options:
+          - 'ours'    # 冲突时保留仓库B的内容
+          - 'theirs'  # 冲突时保留仓库A的内容
+          - 'auto'    # 冲突时直接终止，不推送
       sync_tags:
-        description: '同步 tags'
+        description: '同步标签 Tags'
         required: false
         default: 'true'
-        type: choice
-        options: ['true', 'false']
+        type: boolean
       timeout_minutes:
-        description: '单任务超时（分钟）'
+        description: '单仓库同步超时时间（分钟）'
         required: false
         default: '30'
         type: number
@@ -47,253 +40,156 @@ env:
   TOKEN_B: ${{ secrets.TOKEN_B }}
 
 jobs:
+  # 解析仓库列表，生成并行执行矩阵
   parse-repos:
     runs-on: ubuntu-latest
     outputs:
-      repo_matrix: ${{ steps.parse.outputs.matrix_json }}
+      repo_matrix: ${{ steps.parse.outputs.matrix }}
     steps:
-      - name: 解析逗号分隔的仓库列表
+      - name: 解析仓库列表
         id: parse
         run: |
-          REPO_INPUT="${{ inputs.repo_list }}"
-          USER_A="${{ inputs.user_a }}"
-          USER_B="${{ inputs.user_b }}"
-          STRATEGY="${{ inputs.merge_strategy }}"
-          
-          # 按逗号分割，去除空格
-          IFS=',' read -ra REPOS <<< "$REPO_INPUT"
-          
-          MATRIX="["
-          FIRST=true
-          
-          for repo in "${REPOS[@]}"; do
-            # 清理仓库名（去除首尾空格）
-            repo="$(echo "$repo" | xargs)"
-            [[ -z "$repo" ]] && continue
-            
-            if [ "$FIRST" = true ]; then
-              FIRST=false
-            else
-              MATRIX+=","
-            fi
-            
-            # 构建完整仓库路径
-            MATRIX+="{\"repo_name\":\"$repo\",\"repo_a\":\"$USER_A/$repo\",\"repo_b\":\"$USER_B/$repo\",\"strategy\":\"$STRATEGY\"}"
-            echo "✅ 添加: $USER_A/$repo ↔ $USER_B/$repo"
-          done
-          
-          MATRIX+="]"
-          
-          echo "matrix_json=$MATRIX" >> $GITHUB_OUTPUT
-          echo "📦 共解析 ${#REPOS[@]} 个仓库对"
+          # 分割逗号分隔的仓库名，自动去空格、过滤空值，生成标准JSON矩阵
+          REPO_JSON=$(echo "${{ inputs.repo_list }}" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | awk 'NF' | jq -R -s -c 'split("\n") | map({repo_name: ., repo_a: "${{ inputs.user_a }}/" + ., repo_b: "${{ inputs.user_b }}/" + .})')
+          echo "matrix=$REPO_JSON" >> $GITHUB_OUTPUT
+          echo "✅ 成功解析 $(echo "$REPO_JSON" | jq length) 个仓库"
 
-  sync-pair:
+  # 并行执行每个仓库的同步任务
+  sync-repo:
     needs: parse-repos
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    strategy:
+      fail-fast: false  # 单个仓库失败不影响其他仓库同步
+      matrix:
+        repo: ${{ fromJSON(needs.parse-repos.outputs.repo_matrix) }}
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        config: ${{ fromJSON(needs.parse-repos.outputs.repo_matrix) }}
-    
+
     steps:
-      - name: 🎯 显示当前任务
-        run: |
-          echo "╔════════════════════════════╗"
-          echo "║ 同步任务启动               ║"
-          echo "╠════════════════════════════╣"
-          echo "║ 仓库: ${{ matrix.config.repo_name }}"
-          echo "║ 路径: ${{ matrix.config.repo_a }} ↔ ${{ matrix.config.repo_b }}"
-          echo "║ 策略: ${{ matrix.config.strategy }}"
-          echo "╚════════════════════════════╝"
-
-      - name: 📦 检出仓库A（基础仓库）
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ env.TOKEN_A }}
-          path: repo_a
-
-      - name: ⚙️ 配置 Git 环境
+      - name: 初始化Git环境
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global pull.rebase false
-          
-          case "${{ matrix.config.strategy }}" in
-            ours)
-              git config --global merge.ours.driver true
-              echo "🛡️  冲突时保留 ${{ matrix.config.repo_a }} 内容"
-              ;;
-            theirs)
-              git config --global merge.theirs.driver true
-              echo "🔄 冲突时保留 ${{ matrix.config.repo_b }} 内容"
-              ;;
-            *)
-              echo "⚙️  使用默认合并策略（冲突需人工处理）"
-              ;;
-          esac
+          git config --global pull.rebase false  # 禁用变基，用合并模式保留完整提交历史
 
-      - name: 📥 检测仓库B状态
-        id: check_repo_b
-        env:
-          TOKEN_B: ${{ secrets.TOKEN_B }}
+      - name: 同步任务信息展示
         run: |
-          echo "🔍 检测仓库 ${{ matrix.config.repo_b }} 状态..."
-          
-          # 调试：检查 TOKEN_B 是否设置
-          if [ -z "$TOKEN_B" ]; then
-            echo "❌ 错误：TOKEN_B 未设置！"
-            echo "repo_b_status=error" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-          echo "✅ TOKEN_B 已设置（长度：${#TOKEN_B}）"
-          
-          # 尝试获取仓库 B 的分支信息
-          set +e
-          BRANCHES=$(git ls-remote --heads https://x-access-token:${TOKEN_B}@github.com/${{ matrix.config.repo_b }}.git 2>&1)
-          EXIT_CODE=$?
-          set -e
-          
-          echo "检测退出码: $EXIT_CODE"
-          echo "检测输出行数: $(echo "$BRANCHES" | wc -l)"
-          echo "检测输出: $BRANCHES"
-          
-          # 判断仓库状态
-          if [ $EXIT_CODE -ne 0 ]; then
-            if echo "$BRANCHES" | grep -qi "not found\|repository not found\|404"; then
-              echo "❌ 仓库B不存在"
-              echo "repo_b_status=not_found" >> $GITHUB_OUTPUT
-            else
-              # 其他错误（如权限问题），仍然尝试推送
-              echo "⚠️  检测出错但仓库可能存在，将尝试推送"
-              echo "repo_b_status=empty" >> $GITHUB_OUTPUT
-            fi
-          elif [ -z "$BRANCHES" ] || ! echo "$BRANCHES" | grep -q "refs/heads"; then
-            echo "⚠️  仓库B为空仓库，将直接推送仓库A的内容"
-            echo "repo_b_status=empty" >> $GITHUB_OUTPUT
-          else
-            echo "✅ 仓库B有内容，需要合并"
-            echo "repo_b_status=has_content" >> $GITHUB_OUTPUT
-          fi
-        working-directory: repo_a
+          echo "====================================="
+          echo "🔄 开始同步仓库对"
+          echo "仓库名: ${{ matrix.repo.repo_name }}"
+          echo "仓库A: ${{ matrix.repo.repo_a }}"
+          echo "仓库B: ${{ matrix.repo.repo_b }}"
+          echo "冲突策略: ${{ inputs.merge_strategy }}"
+          echo "====================================="
 
-      - name: 📥 克隆仓库B（非空仓库）
-        if: steps.check_repo_b.outputs.repo_b_status == 'has_content'
-        env:
-          TOKEN_B: ${{ secrets.TOKEN_B }}
+      - name: 初始化本地仓库 & 配置双远程
         run: |
-          git clone https://x-access-token:${TOKEN_B}@github.com/${{ matrix.config.repo_b }}.git repo_b
-          cd repo_b
-          git config receive.denyCurrentBranch ignore
-        working-directory: .
-
-      - name: 🔗 添加远程并拉取所有引用
-        if: steps.check_repo_b.outputs.repo_b_status == 'has_content'
-        run: |
-          git remote add repo_b_local ../repo_b
-          git fetch repo_b_local '+refs/heads/*:refs/remotes/repo_b_local/*'
+          # 初始化空本地仓库，无需重复克隆两个远程仓库
+          git init sync-repo
+          cd sync-repo
+          
+          # 添加两个远程仓库
+          git remote add repo_a https://x-access-token:${{ env.TOKEN_A }}@github.com/${{ matrix.repo.repo_a }}.git
+          git remote add repo_b https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.repo.repo_b }}.git
+          
+          # 拉取两个仓库的全部分支与提交历史
+          git fetch repo_a --prune
+          git fetch repo_b --prune
+          
+          # 同步Tags（按需开启）
           if [ "${{ inputs.sync_tags }}" = "true" ]; then
-            git fetch repo_b_local '+refs/tags/*:refs/tags/*'
+            git fetch repo_a --tags
+            git fetch repo_b --tags
           fi
-        working-directory: repo_a
 
-      - name: 🔀 单向覆盖（A → B）
-        if: steps.check_repo_b.outputs.repo_b_status == 'has_content'
+      - name: 执行分支合并（无强制）
+        id: merge
         run: |
-          echo "🔄 开始单向覆盖合并..."
-          CONFLICT_COUNT=0
+          cd sync-repo
+          CONFLICT_FLAG=0
           
-          # 获取仓库 B 的所有分支
-          BRANCHES_B=$(git branch -r --list 'repo_b_local/*' | sed 's|repo_b_local/||' | grep -v 'HEAD')
-          
-          # 将 B 的同名分支合并到 A（以便获取 B 的历史记录）
-          echo "📥 合并 B 的同名分支到 A..."
-          for branch in $BRANCHES_B; do
-            if git show-ref --verify --quiet refs/heads/$branch; then
-              echo "  → $branch（合并 B 的改动）"
-              git checkout $branch
-              if ! git merge repo_b_local/$branch -m "chore: merge from ${{ matrix.config.repo_b }}/$branch"; then
-                echo "  ⚠️ 冲突！按策略处理..."
-                case "${{ matrix.config.strategy }}" in
-                  ours)   git merge --strategy-option=ours repo_b_local/$branch ;;
-                  theirs) git merge --strategy-option=theirs repo_b_local/$branch ;;
-                  *)      CONFLICT_COUNT=$((CONFLICT_COUNT+1)) ; git merge --abort ;;
-                esac
-              fi
-            else
-              # B 独有的分支，拉取到 A（推送时会同步回 B）
-              git checkout -b $branch repo_b_local/$branch
-              echo "  ✨ 保留 B 独有分支: $branch"
+          # 获取两个仓库的全部分支名
+          BRANCHES_A=$(git branch -r | grep 'repo_a/' | sed 's|repo_a/||' | grep -v 'HEAD')
+          BRANCHES_B=$(git branch -r | grep 'repo_b/' | sed 's|repo_b/||' | grep -v 'HEAD')
+          ALL_BRANCHES=$(echo -e "$BRANCHES_A\n$BRANCHES_B" | sort | uniq)
+
+          echo "📝 待处理分支列表: $ALL_BRANCHES"
+
+          # 遍历所有分支，按规则处理
+          for BRANCH in $ALL_BRANCHES; do
+            echo "-------------------------------------"
+            echo "处理分支: $BRANCH"
+
+            # 情况1: 仅仓库A有该分支 - 直接检出，后续推送到B
+            if echo "$BRANCHES_A" | grep -q "^$BRANCH$" && ! echo "$BRANCHES_B" | grep -q "^$BRANCH$"; then
+              git checkout -b $BRANCH repo_a/$BRANCH
+              echo "✅ 仅仓库A存在，已检出"
+              continue
             fi
-          done
-          
-          git checkout main 2>/dev/null || git checkout master 2>/dev/null || true
-          echo "conflict_count=$CONFLICT_COUNT" >> $GITHUB_ENV
-        working-directory: repo_a
-        continue-on-error: true
 
-      - name: 🏷️ 同步 Tags（去重）
-        if: inputs.sync_tags == 'true' && steps.check_repo_b.outputs.repo_b_status == 'has_content'
-        run: |
-          echo "🏷️  检查 tags..."
-          NEW_COUNT=0
-          
-          for tag in $(git ls-remote --tags repo_b_local | cut -f2 | sed 's|refs/tags/||' | grep -v '\^{}'); do
-            if ! git rev-parse "$tag" >/dev/null 2>&1; then
-              git fetch repo_b_local tag "$tag":"$tag"
-              echo "  + $tag"
-              ((NEW_COUNT++))
+            # 情况2: 仅仓库B有该分支 - 直接检出，后续推送到A
+            if ! echo "$BRANCHES_A" | grep -q "^$BRANCH$" && echo "$BRANCHES_B" | grep -q "^$BRANCH$"; then
+              git checkout -b $BRANCH repo_b/$BRANCH
+              echo "✅ 仅仓库B存在，已检出"
+              continue
             fi
+
+            # 情况3: 双仓库共有分支 - 以B为基础，合并A的更新
+            echo "🔀 双仓库共有分支，执行合并"
+            git checkout -b $BRANCH repo_b/$BRANCH
+
+            # 执行合并，按策略处理冲突
+            if ! git merge repo_a/$BRANCH -m "chore: sync merge from ${{ matrix.repo.repo_a }} $BRANCH"; then
+              echo "⚠️  合并出现冲突，按策略处理"
+              case "${{ inputs.merge_strategy }}" in
+                ours)
+                  git merge --strategy-option=ours repo_a/$BRANCH -m "chore: resolve conflict (keep repo B content)"
+                  echo "✅ 冲突已解决，保留仓库B的内容"
+                  ;;
+                theirs)
+                  git merge --strategy-option=theirs repo_a/$BRANCH -m "chore: resolve conflict (keep repo A content)"
+                  echo "✅ 冲突已解决，保留仓库A的内容"
+                  ;;
+                auto)
+                  echo "❌ 自动模式下检测到冲突，终止当前仓库同步"
+                  git merge --abort
+                  CONFLICT_FLAG=1
+                  break
+                  ;;
+              esac
+            fi
+            echo "✅ 分支 $BRANCH 合并完成"
           done
-          echo "new_tags=$NEW_COUNT" >> $GITHUB_ENV
-        working-directory: repo_a
 
-      - name: 📤 推送到仓库A
-        run: |
-          echo "→ 推送 ${{ matrix.config.repo_a }} ..."
-          git push origin --all
-          [ "${{ inputs.sync_tags }}" = "true" ] && git push origin --tags
-        working-directory: repo_a
-
-      - name: 📤 推送到仓库B
-        if: steps.check_repo_b.outputs.repo_b_status != 'not_found'
-        env:
-          TOKEN_B: ${{ secrets.TOKEN_B }}
-        run: |
-          echo "→ 推送 ${{ matrix.config.repo_b }} ..."
-          
-          # 调试：检查 TOKEN_B 是否设置
-          if [ -z "$TOKEN_B" ]; then
-            echo "❌ 错误：TOKEN_B 未设置！"
+          # 传递冲突标记到后续步骤
+          echo "conflict_flag=$CONFLICT_FLAG" >> $GITHUB_OUTPUT
+          if [ $CONFLICT_FLAG -eq 1 ]; then
             exit 1
           fi
-          echo "✅ TOKEN_B 已设置（长度：${#TOKEN_B}）"
-          
-          # 添加远程仓库 B（直接指向 GitHub）
-          git remote add repo_b_remote https://x-access-token:${TOKEN_B}@github.com/${{ matrix.config.repo_b }}.git 2>/dev/null || \
-          git remote set-url repo_b_remote https://x-access-token:${TOKEN_B}@github.com/${{ matrix.config.repo_b }}.git
-          
-          git push repo_b_remote --all
-          [ "${{ inputs.sync_tags }}" = "true" ] && git push repo_b_remote --tags
-        working-directory: repo_a
 
-      - name: ⚠️ 仓库B不存在警告
-        if: steps.check_repo_b.outputs.repo_b_status == 'not_found'
+      - name: 推送到仓库A（无强制）
+        if: steps.merge.outputs.conflict_flag == 0
         run: |
-          echo "❌ 仓库 ${{ matrix.config.repo_b }} 不存在，请先创建该仓库"
-        working-directory: repo_a
+          cd sync-repo
+          echo "📤 推送到仓库A: ${{ matrix.repo.repo_a }}"
+          git push repo_a --all
+          [ "${{ inputs.sync_tags }}" = "true" ] && git push repo_a --tags
+          echo "✅ 仓库A推送完成"
 
-      - name: 📊 输出同步报告
+      - name: 推送到仓库B（无强制）
+        if: steps.merge.outputs.conflict_flag == 0
         run: |
-          echo "╔════════════════════════════════╗"
-          echo "║ ✅ ${{ matrix.config.repo_name }} 同步完成"
-          echo "╠════════════════════════════════╣"
-          echo "║ 分支数: $(git branch -r | wc -l)"
-          echo "║ Tags数: $(git tag | wc -l)"
-          echo "║ 合并冲突: $([ $conflict_count -eq 0 ] && echo '无' || echo "$conflict_count 处⚠️")"
-          echo "║ 新增 tags: ${new_tags:-0}"
-          echo "╚════════════════════════════════╝"
-        working-directory: repo_a
+          cd sync-repo
+          echo "📤 推送到仓库B: ${{ matrix.repo.repo_b }}"
+          git push repo_b --all
+          [ "${{ inputs.sync_tags }}" = "true" ] && git push repo_b --tags
+          echo "✅ 仓库B推送完成"
+
+      - name: 同步完成报告
+        if: success()
+        run: |
+          echo "====================================="
+          echo "🎉 仓库 ${{ matrix.repo.repo_name }} 同步完成"
+          echo "✅ 无强制推送，所有分支已安全合并"
+          echo "====================================="
