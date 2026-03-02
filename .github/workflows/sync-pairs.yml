@@ -16,7 +16,7 @@ on:
       repo_list:
         description: '仓库名列表（用逗号 , 分隔）'
         required: true
-        default: 'docker-build,docker-project'
+        default: 'docker-build,docker-project,openai-zhuce'
         type: string
       merge_strategy:
         description: '合并冲突策略'
@@ -139,6 +139,9 @@ jobs:
       - name: 📥 克隆仓库B到临时目录
         run: |
           git clone https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git repo_b
+          # 允许推送到当前检出的分支（解决 non-bare repository 推送限制）
+          cd repo_b
+          git config receive.denyCurrentBranch ignore
         working-directory: .
 
       - name: 🔗 添加远程并拉取所有引用
