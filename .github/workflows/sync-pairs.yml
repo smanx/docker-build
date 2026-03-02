@@ -136,43 +136,50 @@ jobs:
               ;;
           esac
 
-      - name: 📥 克隆仓库B到临时目录
+      - name: 📥 检测仓库B状态
+        id: check_repo_b
         run: |
-          git clone https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git repo_b || true
+          # 尝试获取仓库 B 的分支信息
+          BRANCHES=$(git ls-remote --heads https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git 2>&1) || true
           
-          # 检测是否为空仓库
-          cd repo_b 2>/dev/null || true
-          if [ ! -d ".git" ] && [ ! -f "HEAD" ]; then
-            echo "⚠️  仓库B不存在或无法访问"
-            echo "repo_b_empty=true" >> $GITHUB_ENV
-          elif [ -z "$(git branch -r 2>/dev/null)" ] && [ -z "$(git branch 2>/dev/null | grep -v HEAD)" ]; then
+          if echo "$BRANCHES" | grep -q "Repository not found"; then
+            echo "❌ 仓库B不存在"
+            echo "repo_b_status=not_found" >> $GITHUB_OUTPUT
+          elif [ -z "$BRANCHES" ] || [ "$(echo "$BRANCHES" | wc -l)" -eq 0 ]; then
             echo "⚠️  仓库B为空仓库，将直接推送仓库A的内容"
-            echo "repo_b_empty=true" >> $GITHUB_ENV
+            echo "repo_b_status=empty" >> $GITHUB_OUTPUT
           else
             echo "✅ 仓库B有内容，需要合并"
-            echo "repo_b_empty=false" >> $GITHUB_ENV
-            git config receive.denyCurrentBranch ignore
+            echo "repo_b_status=has_content" >> $GITHUB_OUTPUT
           fi
+        working-directory: repo_a
+
+      - name: 📥 克隆仓库B（非空仓库）
+        if: steps.check_repo_b.outputs.repo_b_status == 'has_content'
+        run: |
+          git clone https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git repo_b
+          cd repo_b
+          git config receive.denyCurrentBranch ignore
         working-directory: .
 
       - name: 🔗 添加远程并拉取所有引用
-        if: env.repo_b_empty != 'true'
+        if: steps.check_repo_b.outputs.repo_b_status == 'has_content'
         run: |
-          git remote add repo_b ../repo_b
-          git fetch repo_b '+refs/heads/*:refs/remotes/repo_b/*'
+          git remote add repo_b_local ../repo_b
+          git fetch repo_b_local '+refs/heads/*:refs/remotes/repo_b_local/*'
           if [ "${{ inputs.sync_tags }}" = "true" ]; then
-            git fetch repo_b '+refs/tags/*:refs/tags/*'
+            git fetch repo_b_local '+refs/tags/*:refs/tags/*'
           fi
         working-directory: repo_a
 
       - name: 🔀 单向覆盖（A → B）
-        if: env.repo_b_empty != 'true'
+        if: steps.check_repo_b.outputs.repo_b_status == 'has_content'
         run: |
           echo "🔄 开始单向覆盖合并..."
           CONFLICT_COUNT=0
           
           # 获取仓库 B 的所有分支
-          BRANCHES_B=$(git branch -r --list 'repo_b/*' | sed 's|repo_b/||' | grep -v 'HEAD')
+          BRANCHES_B=$(git branch -r --list 'repo_b_local/*' | sed 's|repo_b_local/||' | grep -v 'HEAD')
           
           # 将 B 的同名分支合并到 A（以便获取 B 的历史记录）
           echo "📥 合并 B 的同名分支到 A..."
@@ -180,17 +187,17 @@ jobs:
             if git show-ref --verify --quiet refs/heads/$branch; then
               echo "  → $branch（合并 B 的改动）"
               git checkout $branch
-              if ! git merge repo_b/$branch -m "chore: merge from ${{ matrix.config.repo_b }}/$branch"; then
+              if ! git merge repo_b_local/$branch -m "chore: merge from ${{ matrix.config.repo_b }}/$branch"; then
                 echo "  ⚠️ 冲突！按策略处理..."
                 case "${{ matrix.config.strategy }}" in
-                  ours)   git merge --strategy-option=ours repo_b/$branch ;;
-                  theirs) git merge --strategy-option=theirs repo_b/$branch ;;
+                  ours)   git merge --strategy-option=ours repo_b_local/$branch ;;
+                  theirs) git merge --strategy-option=theirs repo_b_local/$branch ;;
                   *)      CONFLICT_COUNT=$((CONFLICT_COUNT+1)) ; git merge --abort ;;
                 esac
               fi
             else
               # B 独有的分支，拉取到 A（推送时会同步回 B）
-              git checkout -b $branch repo_b/$branch
+              git checkout -b $branch repo_b_local/$branch
               echo "  ✨ 保留 B 独有分支: $branch"
             fi
           done
@@ -201,14 +208,14 @@ jobs:
         continue-on-error: true
 
       - name: 🏷️ 同步 Tags（去重）
-        if: inputs.sync_tags == 'true'
+        if: inputs.sync_tags == 'true' && steps.check_repo_b.outputs.repo_b_status == 'has_content'
         run: |
           echo "🏷️  检查 tags..."
           NEW_COUNT=0
           
-          for tag in $(git ls-remote --tags repo_b | cut -f2 | sed 's|refs/tags/||' | grep -v '\^{}'); do
+          for tag in $(git ls-remote --tags repo_b_local | cut -f2 | sed 's|refs/tags/||' | grep -v '\^{}'); do
             if ! git rev-parse "$tag" >/dev/null 2>&1; then
-              git fetch repo_b tag "$tag":"$tag"
+              git fetch repo_b_local tag "$tag":"$tag"
               echo "  + $tag"
               ((NEW_COUNT++))
             fi
@@ -224,15 +231,22 @@ jobs:
         working-directory: repo_a
 
       - name: 📤 推送到仓库B
+        if: steps.check_repo_b.outputs.repo_b_status != 'not_found'
         run: |
           echo "→ 推送 ${{ matrix.config.repo_b }} ..."
           
           # 添加远程仓库 B（直接指向 GitHub）
-          git remote add repo_b https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git 2>/dev/null || \
-          git remote set-url repo_b https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git
+          git remote add repo_b_remote https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git 2>/dev/null || \
+          git remote set-url repo_b_remote https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git
           
-          git push repo_b --all
-          [ "${{ inputs.sync_tags }}" = "true" ] && git push repo_b --tags
+          git push repo_b_remote --all
+          [ "${{ inputs.sync_tags }}" = "true" ] && git push repo_b_remote --tags
+        working-directory: repo_a
+
+      - name: ⚠️ 仓库B不存在警告
+        if: steps.check_repo_b.outputs.repo_b_status == 'not_found'
+        run: |
+          echo "❌ 仓库 ${{ matrix.config.repo_b }} 不存在，请先创建该仓库"
         working-directory: repo_a
 
       - name: 📊 输出同步报告
