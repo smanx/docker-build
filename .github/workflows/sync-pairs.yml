@@ -32,7 +32,7 @@ on:
       sync_tags:
         description: '同步标签 Tags'
         required: false
-        default: 'true'
+        default: true
         type: boolean
       timeout_minutes:
         description: '单仓库同步超时时间（分钟）'
