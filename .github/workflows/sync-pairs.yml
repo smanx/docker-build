@@ -1,0 +1,226 @@
+name: Sync Repo Pairs (Comma List)
+
+on:
+  workflow_dispatch:
+    inputs:
+      user_a:
+        description: '用户名 A（源仓库）'
+        required: true
+        default: 'smanx'
+        type: string
+      user_b:
+        description: '用户名 B（目标仓库）'
+        required: true
+        default: 'joeferen'
+        type: string
+      repo_list:
+        description: '仓库名列表（用逗号 , 分隔）'
+        required: true
+        default: 'web-app,api-service'
+        type: string
+      merge_strategy:
+        description: '合并冲突策略'
+        required: false
+        default: 'auto'
+        type: choice
+        options: ['ours', 'theirs', 'auto']
+      force_push:
+        description: '强制推送（--force）'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['true', 'false']
+      sync_tags:
+        description: '同步 tags'
+        required: false
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+      timeout_minutes:
+        description: '单任务超时（分钟）'
+        required: false
+        default: '30'
+        type: number
+
+jobs:
+  parse-repos:
+    runs-on: ubuntu-latest
+    outputs:
+      repo_matrix: ${{ steps.parse.outputs.matrix_json }}
+    steps:
+      - name: 解析逗号分隔的仓库列表
+        id: parse
+        run: |
+          REPO_INPUT="${{ inputs.repo_list }}"
+          USER_A="${{ inputs.user_a }}"
+          USER_B="${{ inputs.user_b }}"
+          STRATEGY="${{ inputs.merge_strategy }}"
+          
+          # 按逗号分割，去除空格
+          IFS=',' read -ra REPOS <<< "$REPO_INPUT"
+          
+          MATRIX="["
+          FIRST=true
+          
+          for repo in "${REPOS[@]}"; do
+            # 清理仓库名（去除首尾空格）
+            repo="$(echo "$repo" | xargs)"
+            [[ -z "$repo" ]] && continue
+            
+            if [ "$FIRST" = true ]; then
+              FIRST=false
+            else
+              MATRIX+=","
+            fi
+            
+            # 构建完整仓库路径
+            MATRIX+="{\"repo_name\":\"$repo\",\"repo_a\":\"$USER_A/$repo\",\"repo_b\":\"$USER_B/$repo\",\"strategy\":\"$STRATEGY\"}"
+            echo "✅ 添加: $USER_A/$repo ↔ $USER_B/$repo"
+          done
+          
+          MATRIX+="]"
+          
+          echo "matrix_json=$MATRIX" >> $GITHUB_OUTPUT
+          echo "📦 共解析 ${#REPOS[@]} 个仓库对"
+
+  sync-pair:
+    needs: parse-repos
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        config: ${{ fromJSON(needs.parse-repos.outputs.repo_matrix) }}
+    
+    steps:
+      - name: 🎯 显示当前任务
+        run: |
+          echo "╔════════════════════════════╗"
+          echo "║ 同步任务启动               ║"
+          echo "╠════════════════════════════╣"
+          echo "║ 仓库: ${{ matrix.config.repo_name }}"
+          echo "║ 路径: ${{ matrix.config.repo_a }} ↔ ${{ matrix.config.repo_b }}"
+          echo "║ 策略: ${{ matrix.config.strategy }}"
+          echo "╚════════════════════════════╝"
+
+      - name: 📦 检出仓库A（基础仓库）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: repo_a
+
+      - name: ⚙️ 配置 Git 环境
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global pull.rebase false
+          
+          case "${{ matrix.config.strategy }}" in
+            ours)
+              git config --global merge.ours.driver true
+              echo "🛡️  冲突时保留 ${{ matrix.config.repo_a }} 内容"
+              ;;
+            theirs)
+              git config --global merge.theirs.driver true
+              echo "🔄 冲突时保留 ${{ matrix.config.repo_b }} 内容"
+              ;;
+            *)
+              echo "⚙️  使用默认合并策略（冲突需人工处理）"
+              ;;
+          esac
+
+      - name: 📥 克隆仓库B到临时目录
+        run: |
+          git clone --depth 0 https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ matrix.config.repo_b }}.git repo_b
+        working-directory: .
+
+      - name: 🔗 添加远程并拉取所有引用
+        run: |
+          git remote add repo_b ../repo_b
+          git fetch repo_b '+refs/heads/*:refs/remotes/repo_b/*'
+          if [ "${{ inputs.sync_tags }}" = "true" ]; then
+            git fetch repo_b '+refs/tags/*:refs/tags/*'
+          fi
+        working-directory: repo_a
+
+      - name: 🔀 合并所有分支（B → A）
+        run: |
+          echo "🔄 开始合并分支..."
+          CONFLICT_COUNT=0
+          
+          for branch in $(git branch -r --list 'repo_b/*' | sed 's|repo_b/||' | grep -v 'HEAD'); do
+            echo "  → $branch"
+            
+            if git show-ref --verify --quiet refs/heads/$branch; then
+              git checkout $branch
+              if ! git merge repo_b/$branch -m "chore: sync from ${{ matrix.config.repo_b }}/$branch"; then
+                echo "  ⚠️ 冲突！按策略处理..."
+                case "${{ matrix.config.strategy }}" in
+                  ours)   git merge --strategy-option=ours repo_b/$branch ;;
+                  theirs) git merge --strategy-option=theirs repo_b/$branch ;;
+                  *)      CONFLICT_COUNT=$((CONFLICT_COUNT+1)) ;;
+                esac
+              fi
+            else
+              git checkout -b $branch repo_b/$branch
+              echo "  ✨ 新建分支: $branch"
+            fi
+          done
+          
+          git checkout main 2>/dev/null || git checkout master 2>/dev/null || true
+          echo "conflict_count=$CONFLICT_COUNT" >> $GITHUB_ENV
+        working-directory: repo_a
+        continue-on-error: true
+
+      - name: 🏷️ 同步 Tags（去重）
+        if: inputs.sync_tags == 'true'
+        run: |
+          echo "🏷️  检查 tags..."
+          NEW_COUNT=0
+          
+          for tag in $(git ls-remote --tags repo_b | cut -f2 | sed 's|refs/tags/||' | grep -v '\^{}'); do
+            if ! git rev-parse "$tag" >/dev/null 2>&1; then
+              git fetch repo_b tag "$tag":"$tag"
+              echo "  + $tag"
+              ((NEW_COUNT++))
+            fi
+          done
+          echo "new_tags=$NEW_COUNT" >> $GITHUB_ENV
+        working-directory: repo_a
+
+      - name: 📤 推送到仓库A
+        run: |
+          FLAG=""
+          [ "${{ inputs.force_push }}" = "true" ] && FLAG="--force"
+          echo "→ 推送 ${{ matrix.config.repo_a }} ..."
+          git push $FLAG origin --all
+          [ "${{ inputs.sync_tags }}" = "true" ] && git push $FLAG origin --tags
+        working-directory: repo_a
+        env:
+          GIT_ASKPASS: /bin/echo
+
+      - name: 📤 推送到仓库B
+        run: |
+          FLAG=""
+          [ "${{ inputs.force_push }}" = "true" ] && FLAG="--force"
+          echo "→ 推送 ${{ matrix.config.repo_b }} ..."
+          git push $FLAG repo_b --all
+          [ "${{ inputs.sync_tags }}" = "true" ] && git push $FLAG repo_b --tags
+        working-directory: repo_a
+        env:
+          GIT_ASKPASS: /bin/echo
+
+      - name: 📊 输出同步报告
+        run: |
+          echo "╔════════════════════════════════╗"
+          echo "║ ✅ ${{ matrix.config.repo_name }} 同步完成"
+          echo "╠════════════════════════════════╣"
+          echo "║ 分支数: $(git branch -r | wc -l)"
+          echo "║ Tags数: $(git tag | wc -l)"
+          echo "║ 合并冲突: $([ $conflict_count -eq 0 ] && echo '无' || echo "$conflict_count 处⚠️")"
+          echo "║ 新增 tags: ${new_tags:-0}"
+          echo "╚════════════════════════════════╝"
+        working-directory: repo_a
