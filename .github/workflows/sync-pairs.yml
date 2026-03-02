@@ -16,7 +16,7 @@ on:
       repo_list:
         description: '仓库名列表（用逗号 , 分隔）'
         required: true
-        default: 'web-app,api-service'
+        default: 'docker-build,docker-project'
         type: string
       merge_strategy:
         description: '合并冲突策略'
