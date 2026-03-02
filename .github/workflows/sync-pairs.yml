@@ -142,9 +142,9 @@ jobs:
           CONFLICT_FLAG=0
           
           # 获取两个仓库的全部分支名
-          BRANCHES_A=$(git branch -r 2>/dev/null | grep 'repo_a/' | sed 's|repo_a/||' | grep -v 'HEAD' | grep -v '^$' || true)
-          BRANCHES_B=$(git branch -r 2>/dev/null | grep 'repo_b/' | sed 's|repo_b/||' | grep -v 'HEAD' | grep -v '^$' || true)
-          ALL_BRANCHES=$(echo -e "$BRANCHES_A\n$BRANCHES_B" | grep -v '^$' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sort | uniq)
+          BRANCHES_A=$(git branch -r 2>/dev/null | grep 'repo_a/' | sed 's|.*repo_a/||' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v 'HEAD' | grep -v '^$' || true)
+          BRANCHES_B=$(git branch -r 2>/dev/null | grep 'repo_b/' | sed 's|.*repo_b/||' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v 'HEAD' | grep -v '^$' || true)
+          ALL_BRANCHES=$(echo -e "$BRANCHES_A\n$BRANCHES_B" | grep -v '^$' | sort | uniq)
 
           echo "📝 待处理分支列表: $ALL_BRANCHES"
           echo "📝 仓库A分支: $BRANCHES_A"
