@@ -214,11 +214,11 @@ jobs:
           FLAG=""
           [ "${{ inputs.force_push }}" = "true" ] && FLAG="--force"
           echo "→ 推送 ${{ matrix.config.repo_b }} ..."
+          # 直接推送到 GitHub 远程仓库
+          git remote set-url repo_b https://x-access-token:${{ env.TOKEN_B }}@github.com/${{ matrix.config.repo_b }}.git
           git push $FLAG repo_b --all
           [ "${{ inputs.sync_tags }}" = "true" ] && git push $FLAG repo_b --tags
         working-directory: repo_a
-        env:
-          GIT_ASKPASS: /bin/echo
 
       - name: 📊 输出同步报告
         run: |
