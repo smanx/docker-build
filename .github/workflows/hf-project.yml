@@ -145,8 +145,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ vars.GHCR_USERNAME }}
+          password: ${{ secrets.REPO_ACCESS_TOKEN }}
 
       # 设置镜像名称和 Dockerfile（基于项目类型和自定义名称）
       - name: Set image name and Dockerfile based on project type
