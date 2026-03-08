@@ -2,6 +2,7 @@ name: 多目录备份循环运行
 
 env:
   BACKUP_DIRS: '/home/runner,/usr/local/bin,/etc/myconfig'
+  BACKUP_PASSWORD: 'admin'
   HF_USERNAME: 'nudomaga'
   HF_TOKEN: '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'
   HF_DATASET: 'nudomaga/backup'
@@ -36,6 +37,8 @@ jobs:
         run: |
           pip install huggingface_hub -q
 
+          PASSWORD="${{ env.BACKUP_PASSWORD }}"
+
           echo "从 Hugging Face 下载备份..."
           python << 'EOF'
           from huggingface_hub import hf_hub_download, HfApi
@@ -48,10 +51,10 @@ jobs:
               # 检查文件是否存在
               api = HfApi()
               files = api.list_repo_files(repo_id=dataset, repo_type="dataset", token=token)
-              if "backup.tar.gz" in files:
+              if "backup.tar.gz.enc" in files:
                   hf_hub_download(
                       repo_id=dataset,
-                      filename="backup.tar.gz",
+                      filename="backup.tar.gz.enc",
                       repo_type="dataset",
                       token=token,
                       local_dir="."
@@ -63,17 +66,17 @@ jobs:
               print(f"首次运行，无备份: {e}")
           EOF
 
-          if [ -f backup.tar.gz ]; then
+          if [ -f backup.tar.gz.enc ]; then
             echo ""
-            echo "解压所有备份目录..."
+            echo "解密并解压备份..."
             echo ""
             echo "备份内容列表："
-            tar -tzf backup.tar.gz | head -20
+            openssl enc -aes-256-cbc -d -pbkdf2 -pass pass:"$PASSWORD" -in backup.tar.gz.enc | tar -tzf - | head -20
             echo "..."
             echo ""
 
-            # 使用 sudo 解压以保留权限 (-p)，--overwrite 覆盖已存在文件
-            sudo tar -zxpf backup.tar.gz -C / --overwrite || {
+            # 解密并解压，使用 sudo 以保留权限
+            openssl enc -aes-256-cbc -d -pbkdf2 -pass pass:"$PASSWORD" -in backup.tar.gz.enc | sudo tar -zxpf - -C / --overwrite || {
               echo "⚠️ 解压过程中有部分错误，继续执行..."
             }
             echo "✅ 备份恢复完成"
@@ -183,11 +186,31 @@ jobs:
           fi
 
           echo ""
-          echo "开始打包..."
-          # 使用 sudo 以读取所有文件，保留权限 (-p) 和所有者信息
-          sudo tar -zcpf backup.tar.gz $VALID_DIRS
+          echo "开始打包并加密..."
+          # 使用 sudo 以读取所有文件，保留权限 (-p)，然后加密
+          PASSWORD="${{ env.BACKUP_PASSWORD }}"
+          sudo tar -zcpf - $VALID_DIRS | openssl enc -aes-256-cbc -salt -pbkdf2 -pass pass:"$PASSWORD" -out backup.tar.gz.enc
 
-          ls -lh backup.tar.gz
+          ls -lh backup.tar.gz.enc
+
+          # 检查文件大小（GitHub 单文件限制 100MB）
+          SIZE_BYTES=$(stat -c%s backup.tar.gz.enc)
+          SIZE_MB=$((SIZE_BYTES / 1024 / 1024))
+
+          echo ""
+          echo "备份文件大小: ${SIZE_MB} MB"
+
+          if [ $SIZE_BYTES -gt 104857600 ]; then
+            echo ""
+            echo "❌ 错误：备份文件超过 100MB 限制"
+            echo "请减少备份目录或添加更多排除规则"
+            exit 1
+          elif [ $SIZE_BYTES -gt 52428800 ]; then
+            echo ""
+            echo "⚠️  警告：备份文件超过 50MB，接近 GitHub 限制"
+          else
+            echo "✅ 备份文件大小正常"
+          fi
 
       # =============================================
       # 上传备份到 Hugging Face Datasets
@@ -222,8 +245,8 @@ jobs:
 
           # 上传备份文件
           api.upload_file(
-              path_or_fileobj="backup.tar.gz",
-              path_in_repo="backup.tar.gz",
+              path_or_fileobj="backup.tar.gz.enc",
+              path_in_repo="backup.tar.gz.enc",
               repo_id=dataset,
               repo_type="dataset",
               token=token,
