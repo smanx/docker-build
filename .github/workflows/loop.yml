@@ -357,9 +357,12 @@ jobs:
           ) &
 
           echo "开始打包并加密（目录大小正在后台计算）..."
-          # 使用 sudo 以读取所有文件，保留权限 (-p)，然后加密
+          # 安装 pigz 多线程压缩
+          sudo apt-get install -y pigz > /dev/null 2>&1
+
+          # 使用 sudo 以读取所有文件，保留权限 (-p)，pigz 多线程压缩，然后加密
           PASSWORD="${{ env.BACKUP_PASSWORD }}"
-          sudo tar -zcpf - $VALID_DIRS | openssl enc -aes-256-cbc -salt -pbkdf2 -pass pass:"$PASSWORD" -out backup.tar.gz.enc
+          sudo tar -cpf - $VALID_DIRS | pigz -p $(nproc) | openssl enc -aes-256-cbc -salt -pbkdf2 -pass pass:"$PASSWORD" -out backup.tar.gz.enc
 
           ls -lh backup.tar.gz.enc
 
