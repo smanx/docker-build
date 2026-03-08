@@ -1,5 +1,8 @@
 name: 多目录备份循环运行
 
+env:
+  BACKUP_DIRS: '/home/runner,/usr/local/bin,/etc/myconfig'
+
 on:
   workflow_dispatch:
     inputs:
@@ -7,6 +10,10 @@ on:
         description: '保活时长（分钟）'
         required: true
         default: '300'
+        type: string
+      backup_dirs:
+        description: '备份目录（逗号分隔）'
+        required: false
         type: string
   repository_dispatch:
     types: [run-next]
@@ -30,7 +37,17 @@ jobs:
 
           if [ -f backup.tar.gz ]; then
             echo "解压所有备份目录..."
-            tar -zxf backup.tar.gz -C /
+            echo ""
+            echo "备份内容列表："
+            tar -tzf backup.tar.gz | head -20
+            echo "..."
+            echo ""
+
+            # 使用 sudo 解压以保留权限 (-p)，--overwrite 覆盖已存在文件
+            sudo tar -zxpf backup.tar.gz -C / --overwrite || {
+              echo "⚠️ 解压过程中有部分错误，继续执行..."
+            }
+            echo "✅ 备份恢复完成"
           else
             echo "首次运行，无备份"
           fi
@@ -109,23 +126,39 @@ jobs:
           done
 
       # =============================================
-      # 打包多个目录（你自己加路径）
+      # 打包多个目录
       # =============================================
       - name: 打包所有要备份的目录
         run: |
-          echo "开始打包多个目录..."
+          # 优先使用输入参数，否则使用环境变量默认值
+          DIRS="${{ inputs.backup_dirs || env.BACKUP_DIRS }}"
 
-          # ==============================
-          # 你要备份哪些目录，在这里加
-          # 例子：
-          # /home/runner \
-          # /etc/config \
-          # /usr/local/myapp \
-          # ==============================
-          tar -zcf backup.tar.gz \
-            /home/runner \
-            /usr/local/bin \
-            /etc/myconfig
+          echo "备份目录: ${DIRS}"
+          echo ""
+
+          # 将逗号分隔转换为空格分隔
+          DIR_LIST=$(echo "$DIRS" | tr ',' ' ')
+
+          # 过滤存在的目录
+          VALID_DIRS=""
+          for dir in $DIR_LIST; do
+            if [ -d "$dir" ] || [ -f "$dir" ]; then
+              VALID_DIRS="$VALID_DIRS $dir"
+              echo "✓ $dir"
+            else
+              echo "✗ $dir (不存在，跳过)"
+            fi
+          done
+
+          if [ -z "$VALID_DIRS" ]; then
+            echo "错误：没有有效的备份目录"
+            exit 1
+          fi
+
+          echo ""
+          echo "开始打包..."
+          # 使用 sudo 以读取所有文件，保留权限 (-p) 和所有者信息
+          sudo tar -zcpf backup.tar.gz $VALID_DIRS
 
           ls -lh backup.tar.gz
 
