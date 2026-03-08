@@ -9,6 +9,9 @@ if [ -n "$HOSTNAME" ]; then
     echo "✓ 主机名已设置为: $(hostname)"
 fi
 
+# 重新加载 bash 配置
+source ~/.bashrc
+
 echo "正在安装 ttyd、code-server、Cloudflared、Tailscale..."
 
 # 安装 ttyd（snap 依赖）
@@ -21,6 +24,7 @@ echo "后台并行安装 opencode、iflow-cli、code-server、Cloudflared、Tail
 (curl -fsSL https://opencode.ai/install | bash) &
 (bash -c "$(curl -fsSL https://gitee.com/iflow-ai/iflow-cli/raw/main/install.sh)") &
 (curl -fsSL https://code-server.dev/install.sh | sh) &
+(curl -fsSL https://openclaw.ai/install.sh | bash) &
 
 # 后台安装 Cloudflared
 (ARCH=$(uname -m)
