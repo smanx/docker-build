@@ -294,3 +294,6 @@ else
     echo $CLOUDFLARED_TTYD_PID > cloudflared-ttyd.pid
     echo $CLOUDFLARED_CODE_PID > cloudflared-code.pid
 fi
+
+# 重新加载 bash 配置
+source ~/.bashrc
