@@ -81,11 +81,11 @@ jobs:
       # =============================================
       - name: 安装并启动应用
         run: |
-          if [ -f "start.sh" ]; then
+          if [ -f "start-loop.sh" ]; then
             echo "正在启动应用..."
-            bash start.sh
+            bash start-loop.sh
           else
-            echo "警告：未找到 start.sh 文件，跳过应用启动"
+            echo "警告：未找到 start-loop.sh 文件，跳过应用启动"
           fi
 
       - name: 保持工作流运行
