@@ -307,21 +307,7 @@ jobs:
                     # 后台异步重置停止信号（防止下次运行时立即停止）
                     (
                       pip install huggingface_hub -q 2>/dev/null
-                      python3 -c "
-from huggingface_hub import HfApi
-import os
-import json
-api = HfApi()
-content = json.dumps({'stop': False, 'timestamp': '', 'reset_by': 'loop'})
-api.upload_file(
-    path_or_fileobj=content.encode(),
-    path_in_repo='stop.json',
-    repo_id=os.environ.get('HF_DATASET'),
-    repo_type='dataset',
-    token=os.environ.get('HF_TOKEN')
-)
-print('✅ 停止信号已重置')
-" 2>/dev/null
+                      python3 -c "from huggingface_hub import HfApi; import os, json; api=HfApi(); api.upload_file(path_or_fileobj=json.dumps({'stop':False,'timestamp':'','reset_by':'loop'}).encode(),path_in_repo='stop.json',repo_id=os.environ.get('HF_DATASET'),repo_type='dataset',token=os.environ.get('HF_TOKEN')); print('✅ 停止信号已重置')" 2>/dev/null
                     ) &
                     
                     break 2
