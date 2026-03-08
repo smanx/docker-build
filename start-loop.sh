@@ -17,73 +17,75 @@ echo "正在安装 ttyd、code-server、Cloudflared、Tailscale..."
 # 安装 ttyd（snap 依赖）
 sudo apt update -y
 sudo apt install snapd tmux -y
-sudo snap install ttyd --classic &
+sudo snap install ttyd --classic
 
-# 后台并行安装（加快启动速度）
-echo "后台并行安装 opencode、iflow-cli、code-server、openclaw、Cloudflared、Tailscale..."
+# 同步安装
+echo "安装 opencode、iflow-cli、code-server、openclaw、Cloudflared、Tailscale..."
 
 # 系统级安装目录
 INSTALL_DIR="/usr/local/bin"
 
-# 后台安装 Tailscale
+# 安装 Tailscale
 if command -v tailscale &> /dev/null; then
     echo "✓ tailscale 已存在，跳过安装"
 else
-    (curl -fsSL https://tailscale.com/install.sh | sh) &
+    echo "安装 Tailscale..."
+    curl -fsSL https://tailscale.com/install.sh | sh
 fi
 
 # opencode - 系统级安装
 if [ -x "$INSTALL_DIR/opencode" ]; then
     echo "✓ opencode 已存在，跳过安装"
 else
-    (INSTALL_DIR="$INSTALL_DIR" curl -fsSL https://opencode.ai/install | sudo bash) &
+    echo "安装 opencode..."
+    INSTALL_DIR="$INSTALL_DIR" curl -fsSL https://opencode.ai/install | sudo bash
 fi
 
 # iflow-cli - 系统级安装
 if [ -x "$INSTALL_DIR/iflow" ]; then
     echo "✓ iflow-cli 已存在，跳过安装"
 else
-    (curl -fsSL https://gitee.com/iflow-ai/iflow-cli/raw/main/install.sh | sudo INSTALL_DIR="$INSTALL_DIR" bash) &
+    echo "安装 iflow-cli..."
+    curl -fsSL https://gitee.com/iflow-ai/iflow-cli/raw/main/install.sh | sudo INSTALL_DIR="$INSTALL_DIR" bash
 fi
 
 # code-server - 系统级安装
 if [ -x "$INSTALL_DIR/code-server" ]; then
     echo "✓ code-server 已存在，跳过安装"
 else
-    (sudo INSTALL_DIR="$INSTALL_DIR" curl -fsSL https://code-server.dev/install.sh | sh) &
+    echo "安装 code-server..."
+    curl -fsSL https://code-server.dev/install.sh | INSTALL_DIR="$INSTALL_DIR" sh
 fi
 
 # openclaw - 系统级安装
 if [ -x "$INSTALL_DIR/openclaw" ]; then
     echo "✓ openclaw 已存在，跳过安装"
 else
-    (INSTALL_DIR="$INSTALL_DIR" curl -fsSL https://openclaw.ai/install.sh | sudo bash) &
+    echo "安装 openclaw..."
+    INSTALL_DIR="$INSTALL_DIR" curl -fsSL https://openclaw.ai/install.sh | sudo bash
 fi
 
-# 后台安装 Cloudflared
+# 安装 Cloudflared
 if command -v cloudflared &> /dev/null; then
     echo "✓ cloudflared 已存在，跳过安装"
 else
-    (ARCH=$(uname -m)
-     if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-         wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-arm64 -O cloudflared
-     else
-         wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-amd64 -O cloudflared
-     fi
-     chmod +x cloudflared
-     sudo mv cloudflared /usr/local/bin/) &
+    echo "安装 Cloudflared..."
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+        wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-arm64 -O cloudflared
+    else
+        wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-amd64 -O cloudflared
+    fi
+    chmod +x cloudflared
+    sudo mv cloudflared /usr/local/bin/
 fi
 
-# 等待所有后台安装完成
-echo "等待后台安装完成..."
-wait
-echo "✓ 后台安装完成"
-
-# 检查 Tailscale 是否安装成功
+# 检查安装结果
+echo "检查安装结果..."
 if command -v tailscale &> /dev/null; then
     echo "✓ Tailscale 安装成功"
 else
-    echo "⚠ Tailscale 安装失败，跳过"
+    echo "⚠ Tailscale 安装失败"
 fi
 
 echo "✓ 所有安装完成"
