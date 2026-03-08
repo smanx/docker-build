@@ -156,16 +156,22 @@ jobs:
             echo "============================================="
             echo "📦 开始解密解压备份..."
             echo "============================================="
+            echo "正在解密解压，请耐心等待（文件较大可能需要几分钟）..."
             RESTORE_START=$(date +%s)
 
-            # 解密并解压，使用 sudo 以保留权限
-            if openssl enc -aes-256-cbc -d -salt -pbkdf2 -pass pass:"$PASSWORD" -in backup.tar.gz.enc | sudo tar -zxpf - -C / --overwrite 2>&1; then
+            # 安装 pv 显示进度
+            sudo apt-get install -y pv > /dev/null 2>&1
+
+            # 解密并解压，使用 sudo 以保留权限，显示进度
+            if pv backup.tar.gz.enc | openssl enc -aes-256-cbc -d -salt -pbkdf2 -pass pass:"$PASSWORD" 2>/dev/null | sudo tar -zxpf - -C / --overwrite 2>&1; then
               RESTORE_END=$(date +%s)
               RESTORE_TIME=$((RESTORE_END - RESTORE_START))
+              echo ""
               echo "✅ 备份恢复完成 (耗时: ${RESTORE_TIME} 秒)"
             else
               RESTORE_END=$(date +%s)
               RESTORE_TIME=$((RESTORE_END - RESTORE_START))
+              echo ""
               echo "❌ 解密解压失败 (耗时: ${RESTORE_TIME} 秒)"
               echo "   可能原因：密码不匹配或文件损坏"
               exit 1
