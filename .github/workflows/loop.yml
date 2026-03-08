@@ -1,0 +1,155 @@
+name: 多目录备份循环运行
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: '保活时长（分钟）'
+        required: true
+        default: '300'
+        type: string
+  repository_dispatch:
+    types: [run-next]
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6小时最大限制
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # =============================================
+      # 下载并恢复所有备份目录
+      # =============================================
+      - name: 恢复备份
+        run: |
+          echo "下载备份..."
+          git fetch origin backup || true
+          git show backup:backup.tar.gz 2>/dev/null > backup.tar.gz
+
+          if [ -f backup.tar.gz ]; then
+            echo "解压所有备份目录..."
+            tar -zxf backup.tar.gz -C /
+          else
+            echo "首次运行，无备份"
+          fi
+
+      # =============================================
+      # 运行你的项目
+      # =============================================
+      - name: 安装并启动应用
+        run: |
+          if [ -f "start.sh" ]; then
+            echo "正在启动应用..."
+            bash start.sh
+          else
+            echo "警告：未找到 start.sh 文件，跳过应用启动"
+          fi
+
+      - name: 保持工作流运行
+        run: |
+          echo "============================================="
+          echo "🚀 启动保活进程"
+          echo "============================================="
+          echo ""
+
+          DURATION_MINUTES=${{ inputs.duration || '300' }}
+          DURATION_SECONDS=$((DURATION_MINUTES * 60))
+
+          echo "⏱️  设置运行时长: ${DURATION_MINUTES} 分钟"
+          echo ""
+
+          START_TIME=$(date +%s)
+          ITERATION=0
+
+          while true; do
+            ITERATION=$((ITERATION + 1))
+            CURRENT_TIME=$(date +%s)
+            ELAPSED=$((CURRENT_TIME - START_TIME))
+
+            if [ $ELAPSED -ge $DURATION_SECONDS ]; then
+              echo "============================================="
+              echo "⏰ 已达到设置的运行时长"
+              echo "============================================="
+              echo "运行了 ${DURATION_MINUTES} 分钟，现在退出"
+              echo ""
+              break
+            fi
+
+            ELAPSED_HOURS=$((ELAPSED / 3600))
+            ELAPSED_MINS=$(((ELAPSED % 3600) / 60))
+            ELAPSED_SECS=$((ELAPSED % 60))
+
+            DURATION_HOURS=$((DURATION_SECONDS / 3600))
+            DURATION_MINS=$(((DURATION_SECONDS % 3600) / 60))
+            DURATION_SECS=$((DURATION_SECONDS % 60))
+
+            DISK_USED=$(df -h / | tail -1 | awk '{print $3}')
+            DISK_AVAIL=$(df -h / | tail -1 | awk '{print $4}')
+            DISK_PERCENT=$(df -h / | tail -1 | awk '{print $5}')
+            MEM_USED=$(free -h | grep Mem | awk '{print $3}')
+            MEM_AVAIL=$(free -h | grep Mem | awk '{print $7}')
+
+            echo "============================================="
+            echo "📊 状态报告 #${ITERATION}"
+            echo "============================================="
+            echo "⏰ 已运行: ${ELAPSED_HOURS}小时 ${ELAPSED_MINS}分 ${ELAPSED_SECS}秒"
+            echo "⏱️  设置时长: ${DURATION_HOURS}小时 ${DURATION_MINS}分 ${DURATION_SECS}秒 (${DURATION_SECONDS}秒)"
+            echo "📅 当前时间: $(date '+%Y-%m-%d %H:%M:%S')"
+            echo ""
+            echo "💾 磁盘使用: 已用 ${DISK_USED} | 可用 ${DISK_AVAIL} | 使用率 ${DISK_PERCENT}"
+            echo "🧠 内存使用: 已用 ${MEM_USED} | 可用 ${MEM_AVAIL}"
+            echo ""
+            echo "🔄 下次更新将在 5 分钟后..."
+            echo "============================================="
+            echo ""
+
+            sleep 300
+          done
+
+      # =============================================
+      # 打包多个目录（你自己加路径）
+      # =============================================
+      - name: 打包所有要备份的目录
+        run: |
+          echo "开始打包多个目录..."
+
+          # ==============================
+          # 你要备份哪些目录，在这里加
+          # 例子：
+          # /home/runner \
+          # /etc/config \
+          # /usr/local/myapp \
+          # ==============================
+          tar -zcf backup.tar.gz \
+            /home/runner \
+            /usr/local/bin \
+            /etc/myconfig
+
+          ls -lh backup.tar.gz
+
+      # =============================================
+      # 安全备份到 backup 分支，不影响主分支
+      # =============================================
+      - name: 上传备份
+        run: |
+          git config --global user.name "bot"
+          git config --global user.email "bot@github.com"
+
+          git checkout --orphan tmp
+          rm -rf *
+          mv backup.tar.gz .
+
+          git add .
+          git commit -m "backup"
+          git push -f origin HEAD:backup
+
+      # =============================================
+      # 自动触发下一次循环
+      # =============================================
+      - name: 重启任务
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: run-next
