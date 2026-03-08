@@ -3,6 +3,7 @@ name: 多目录备份循环运行
 env:
   BACKUP_DIRS: '/home/runner,/usr/local/bin,/etc/myconfig'
   BACKUP_PASSWORD: 'admin'
+  DURATION: '300'
   HF_USERNAME: 'nudomaga'
   HF_TOKEN: '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'
   HF_DATASET: 'nudomaga/backup'
@@ -12,8 +13,7 @@ on:
     inputs:
       duration:
         description: '保活时长（分钟）'
-        required: true
-        default: '300'
+        required: false
         type: string
       backup_dirs:
         description: '备份目录（逗号分隔）'
@@ -31,40 +31,34 @@ jobs:
       - uses: actions/checkout@v4
 
       # =============================================
-      # 从 Hugging Face 下载并恢复备份
+      # 使用 Git LFS 从 Hugging Face 下载并恢复备份
       # =============================================
       - name: 恢复备份
         run: |
-          pip install huggingface_hub -q
-
+          TOKEN="${{ env.HF_TOKEN }}"
+          USERNAME="${{ env.HF_USERNAME }}"
+          DATASET="${{ env.HF_DATASET }}"
           PASSWORD="${{ env.BACKUP_PASSWORD }}"
 
+          # 安装 git-lfs
+          sudo apt-get install -y git-lfs
+          git lfs install
+
           echo "从 Hugging Face 下载备份..."
-          python << 'EOF'
-          from huggingface_hub import hf_hub_download, HfApi
-          import os
 
-          token = os.environ.get('HF_TOKEN')
-          dataset = os.environ.get('HF_DATASET')
-
-          try:
-              # 检查文件是否存在
-              api = HfApi()
-              files = api.list_repo_files(repo_id=dataset, repo_type="dataset", token=token)
-              if "backup.tar.gz.enc" in files:
-                  hf_hub_download(
-                      repo_id=dataset,
-                      filename="backup.tar.gz.enc",
-                      repo_type="dataset",
-                      token=token,
-                      local_dir="."
-                  )
-                  print("✅ 备份文件下载成功")
-              else:
-                  print("首次运行，无备份")
-          except Exception as e:
-              print(f"首次运行，无备份: {e}")
-          EOF
+          # 克隆仓库（包含 LFS 文件）
+          if git clone "https://$USERNAME:$TOKEN@huggingface.co/datasets/$DATASET" repo 2>/dev/null; then
+            echo "✅ 克隆仓库成功"
+            if [ -f "repo/backup.tar.gz.enc" ]; then
+              mv repo/backup.tar.gz.enc .
+              echo "✅ 备份文件下载成功"
+            else
+              echo "首次运行，无备份"
+            fi
+            rm -rf repo
+          else
+            echo "首次运行，无备份"
+          fi
 
           if [ -f backup.tar.gz.enc ]; then
             echo ""
@@ -101,7 +95,7 @@ jobs:
           echo "============================================="
           echo ""
 
-          DURATION_MINUTES=${{ inputs.duration || '300' }}
+          DURATION_MINUTES=${{ inputs.duration || env.DURATION }}
           DURATION_SECONDS=$((DURATION_MINUTES * 60))
 
           echo "⏱️  设置运行时长: ${DURATION_MINUTES} 分钟"
@@ -213,47 +207,44 @@ jobs:
           fi
 
       # =============================================
-      # 上传备份到 Hugging Face Datasets
+      # 使用 Git LFS 上传备份到 Hugging Face
       # =============================================
-      - name: 上传备份到 Hugging Face
+      - name: 上传备份到 Hugging Face (Git LFS)
         run: |
-          pip install huggingface_hub -q
+          TOKEN="${{ env.HF_TOKEN }}"
+          USERNAME="${{ env.HF_USERNAME }}"
+          DATASET="${{ env.HF_DATASET }}"
 
-          python << 'EOF'
-          from huggingface_hub import HfApi, create_repo, repo_exists
-          import os
-          from datetime import datetime
+          # 配置 git
+          git config --global user.name "$USERNAME"
+          git config --global user.email "$USERNAME@users.noreply.huggingface.co"
 
-          api = HfApi()
-          token = os.environ.get('HF_TOKEN')
-          username = os.environ.get('HF_USERNAME')
-          dataset = os.environ.get('HF_DATASET')
+          # 安装 git-lfs
+          sudo apt-get install -y git-lfs
+          git lfs install
 
-          # 检查仓库是否存在，不存在则创建公有仓库
-          if not repo_exists(repo_id=dataset, repo_type="dataset", token=token):
-              print(f"📦 创建 dataset 仓库: {dataset}")
-              create_repo(
-                  repo_id=dataset,
-                  repo_type="dataset",
-                  token=token,
-                  private=False,
-                  exist_ok=True
-              )
-              print(f"✅ 仓库创建成功: https://huggingface.co/datasets/{dataset}")
-          else:
-              print(f"✅ 仓库已存在: https://huggingface.co/datasets/{dataset}")
+          # 创建全新的 orphan 分支（无历史记录）
+          mkdir -p repo
+          cd repo
+          git init
 
-          # 上传备份文件
-          api.upload_file(
-              path_or_fileobj="backup.tar.gz.enc",
-              path_in_repo="backup.tar.gz.enc",
-              repo_id=dataset,
-              repo_type="dataset",
-              token=token,
-              commit_message=f"backup {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-          )
-          print(f"✅ 备份已上传到: https://huggingface.co/datasets/{dataset}")
-          EOF
+          # 配置 LFS 追踪备份文件
+          git lfs track "*.enc"
+          git lfs track "*.tar.gz"
+          git lfs track "*.tar.gz.enc"
+
+          # 复制备份文件
+          cp ../../backup.tar.gz.enc .
+
+          # 添加并提交
+          git add .gitattributes backup.tar.gz.enc
+          git commit -m "backup $(date '+%Y-%m-%d %H:%M:%S')"
+
+          # 强制推送覆盖远程仓库（只保留当前 commit，无历史）
+          git remote add origin "https://$USERNAME:$TOKEN@huggingface.co/datasets/$DATASET"
+          git push -f origin HEAD:main
+
+          echo "✅ 备份已上传到: https://huggingface.co/datasets/$DATASET"
 
       # =============================================
       # 自动触发下一次循环
