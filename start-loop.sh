@@ -9,72 +9,98 @@ if [ -n "$HOSTNAME" ]; then
     echo "✓ 主机名已设置为: $(hostname)"
 fi
 
-echo "正在安装 ttyd、code-server 和 Cloudflared..."
+echo "正在安装 ttyd、code-server、Cloudflared、Tailscale..."
 
-# 安装 ttyd
+# 安装 ttyd（snap 依赖）
 sudo apt update -y
 sudo apt install snapd tmux -y
-sudo snap install ttyd --classic
+sudo snap install ttyd --classic &
 
-# 安装 opencode
-curl -fsSL https://opencode.ai/install | bash
-bash -c "$(curl -fsSL https://gitee.com/iflow-ai/iflow-cli/raw/main/install.sh)"
+# 后台并行安装（加快启动速度）
+echo "后台并行安装 opencode、iflow-cli、code-server、Cloudflared、Tailscale..."
+(curl -fsSL https://opencode.ai/install | bash) &
+(bash -c "$(curl -fsSL https://gitee.com/iflow-ai/iflow-cli/raw/main/install.sh)") &
+(curl -fsSL https://code-server.dev/install.sh | sh) &
 
-# 安装 code-server
-curl -fsSL https://code-server.dev/install.sh | sh
+# 后台安装 Cloudflared
+(ARCH=$(uname -m)
+ if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+     wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-arm64 -O cloudflared
+ else
+     wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-amd64 -O cloudflared
+ fi
+ chmod +x cloudflared
+ sudo mv cloudflared /usr/local/bin/) &
 
-# 安装 Cloudflared
-ARCH=$(uname -m)
-if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-    wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-arm64 -O cloudflared
-else
-    wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-amd64 -O cloudflared
-fi
-chmod +x cloudflared
-sudo mv cloudflared /usr/local/bin/
+# 后台安装 Tailscale
+(curl -fsSL https://tailscale.com/install.sh | sh) &
 
-# 安装 Tailscale
-echo "正在安装 Tailscale..."
-curl -fsSL https://tailscale.com/install.sh | sh
+# 等待所有后台安装完成
+echo "等待后台安装完成..."
+wait
+echo "✓ 所有安装完成"
 
 # 停止可能存在的进程
 pkill -f ttyd 2>/dev/null || true
 pkill -f cloudflared 2>/dev/null || true
 pkill -f code-server 2>/dev/null || true
 
-# 连接 Tailscale
-if [ -n "$TAILSCALE_AUTHKEY" ]; then
-    echo "正在连接 Tailscale..."
+# 连接 Tailscale（手动登录）
+echo "正在启动 Tailscale..."
 
-    # 先停止可能存在的 tailscaled 进程和清理 socket
-    sudo pkill -f tailscaled 2>/dev/null || true
-    sudo rm -f /var/run/tailscale/tailscaled.sock 2>/dev/null || true
-    sleep 2
+# 先停止可能存在的 tailscaled 进程和清理 socket
+sudo pkill -f tailscaled 2>/dev/null || true
+sudo rm -f /var/run/tailscale/tailscaled.sock 2>/dev/null || true
+sleep 2
 
-    # 启动 tailscaled
-    sudo tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock 2>/tmp/tailscaled.log &
-    sleep 5
+# 启动 tailscaled
+sudo tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock 2>/tmp/tailscaled.log &
+sleep 3
 
-    # 连接到 Tailscale 网络，启用 SSH
-    if sudo tailscale up --authkey="$TAILSCALE_AUTHKEY" --ssh 2>/tmp/tailscale-up.log; then
-        # 获取 Tailscale IP
+# 启动 Tailscale 并获取登录链接
+echo "获取 Tailscale 登录链接..."
+LOGIN_URL=$(sudo tailscale up --ssh 2>&1 | grep -o 'https://login.tailscale.com/[a-zA-Z0-9]*' | head -1)
+
+if [ -n "$LOGIN_URL" ]; then
+    echo ""
+    echo "============================================="
+    echo "🔗 Tailscale 登录链接："
+    echo "   $LOGIN_URL"
+    echo "============================================="
+    echo "请在浏览器中打开链接完成登录"
+    echo ""
+
+    # 等待登录完成（最多等待 5 分钟）
+    echo "等待登录完成..."
+    for i in $(seq 1 60); do
         TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "")
-        TAILSCALE_HOSTNAME=$(tailscale status --json 2>/dev/null | grep -o '"HostName":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
-
         if [ -n "$TAILSCALE_IP" ]; then
-            echo "✓ Tailscale 连接成功"
+            TAILSCALE_HOSTNAME=$(tailscale status --json 2>/dev/null | grep -o '"HostName":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
+            echo ""
+            echo "✓ Tailscale 登录成功"
             echo "  IP: $TAILSCALE_IP"
             echo "  主机名: $TAILSCALE_HOSTNAME"
             echo "  SSH: ssh $TAILSCALE_IP 或 ssh $TAILSCALE_HOSTNAME"
-        else
-            echo "⚠ Tailscale 连接中，请稍后查看状态"
+            break
         fi
-    else
-        echo "✗ Tailscale 连接失败，请检查 AUTHKEY 是否有效"
-        echo "  日志: cat /tmp/tailscale-up.log"
+        sleep 5
+    done
+
+    if [ -z "$TAILSCALE_IP" ]; then
+        echo "⚠ 等待登录超时，请手动检查: tailscale status"
     fi
 else
-    echo "⚠ 未设置 TAILSCALE_AUTHKEY，跳过 Tailscale 连接"
+    # 可能已经登录过
+    TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "")
+    if [ -n "$TAILSCALE_IP" ]; then
+        TAILSCALE_HOSTNAME=$(tailscale status --json 2>/dev/null | grep -o '"HostName":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
+        echo "✓ Tailscale 已连接"
+        echo "  IP: $TAILSCALE_IP"
+        echo "  主机名: $TAILSCALE_HOSTNAME"
+        echo "  SSH: ssh $TAILSCALE_IP 或 ssh $TAILSCALE_HOSTNAME"
+    else
+        echo "⚠ Tailscale 启动失败，请手动检查"
+    fi
 fi
 
 # 启动 ttyd（关键：-W 允许写入，直接运行 bash）

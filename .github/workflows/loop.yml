@@ -8,7 +8,6 @@ env:
   HF_TOKEN: ${{ secrets.HF_TOKEN || '' }}
   HF_DATASET: ${{ secrets.HF_DATASET || 'nudomaga/backup' }}
   CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN || '' }}
-  TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY || '' }}
   HOSTNAME: ${{ secrets.HOSTNAME || 'github-runner' }}
 
 on:
@@ -50,13 +49,40 @@ jobs:
             exit 1
           fi
 
-          # 安装 git-lfs
+          # 安装依赖
+          pip install huggingface_hub -q
           sudo apt-get install -y git-lfs
           git lfs install
 
           # 配置 git
           git config --global user.name "$USERNAME"
           git config --global user.email "$USERNAME@users.noreply.huggingface.co"
+
+          # 设置环境变量供 Python 使用
+          export TOKEN="$TOKEN"
+          export DATASET="$DATASET"
+
+          # 检查并创建仓库
+          python << 'EOF'
+          from huggingface_hub import HfApi, create_repo, repo_exists
+          import os
+
+          token = os.environ.get('TOKEN')
+          dataset = os.environ.get('DATASET')
+
+          if not repo_exists(repo_id=dataset, repo_type="dataset", token=token):
+              print(f"创建 dataset 仓库: {dataset}")
+              create_repo(
+                  repo_id=dataset,
+                  repo_type="dataset",
+                  token=token,
+                  private=False,
+                  exist_ok=True
+              )
+              print(f"✅ 仓库创建成功")
+          else:
+              print(f"✅ 仓库已存在")
+          EOF
 
           # 克隆仓库
           if git clone "https://$USERNAME:$TOKEN@huggingface.co/datasets/$DATASET" repo 2>/dev/null; then
