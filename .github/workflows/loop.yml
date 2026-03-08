@@ -1,4 +1,4 @@
-name: 多目录备份循环运行
+name: Phoenix Runner
 
 env:
   BACKUP_DIRS: '/home/runner,/usr/local/bin,/var/lib/tailscale'
@@ -6,7 +6,7 @@ env:
   DURATION: ${{ secrets.DURATION || '300' }}
   HF_USERNAME: ${{ secrets.HF_USERNAME || 'nudomaga' }}
   HF_TOKEN: ${{ secrets.HF_TOKEN || '' }}
-  HF_DATASET: ${{ secrets.HF_DATASET || 'nudomaga/backup' }}
+  HF_DATASET: ${{ secrets.HF_DATASET || 'nudomaga/phoenix-data' }}
   CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN || '' }}
   HOSTNAME: ${{ secrets.HOSTNAME || 'github-runner' }}
 

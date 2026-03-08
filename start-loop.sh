@@ -55,11 +55,27 @@ sleep 2
 
 # 启动 tailscaled
 sudo tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock 2>/tmp/tailscaled.log &
-sleep 3
+sleep 5
+
+# 检查 tailscaled 是否运行
+if ! pgrep -x tailscaled > /dev/null; then
+    echo "✗ tailscaled 启动失败"
+    cat /tmp/tailscaled.log
+fi
 
 # 启动 Tailscale 并获取登录链接
 echo "获取 Tailscale 登录链接..."
-LOGIN_URL=$(sudo tailscale up --ssh 2>&1 | grep -o 'https://login.tailscale.com/[a-zA-Z0-9]*' | head -1)
+TAILSCALE_OUTPUT=$(sudo tailscale up --ssh 2>&1)
+echo "Tailscale 输出: $TAILSCALE_OUTPUT"
+
+# 尝试多种方式获取登录链接
+LOGIN_URL=$(echo "$TAILSCALE_OUTPUT" | grep -oE 'https://login\.tailscale\.com/[a-zA-Z0-9]+' | head -1)
+if [ -z "$LOGIN_URL" ]; then
+    LOGIN_URL=$(echo "$TAILSCALE_OUTPUT" | grep -oE 'https://tailscale\.com/login/[a-zA-Z0-9]+' | head -1)
+fi
+if [ -z "$LOGIN_URL" ]; then
+    LOGIN_URL=$(echo "$TAILSCALE_OUTPUT" | grep -oE 'http[s]?://[^ ]*login[^ ]*' | head -1)
+fi
 
 if [ -n "$LOGIN_URL" ]; then
     echo ""
@@ -90,7 +106,7 @@ if [ -n "$LOGIN_URL" ]; then
         echo "⚠ 等待登录超时，请手动检查: tailscale status"
     fi
 else
-    # 可能已经登录过
+    # 可能已经登录过或输出格式变化
     TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "")
     if [ -n "$TAILSCALE_IP" ]; then
         TAILSCALE_HOSTNAME=$(tailscale status --json 2>/dev/null | grep -o '"HostName":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
@@ -99,7 +115,8 @@ else
         echo "  主机名: $TAILSCALE_HOSTNAME"
         echo "  SSH: ssh $TAILSCALE_IP 或 ssh $TAILSCALE_HOSTNAME"
     else
-        echo "⚠ Tailscale 启动失败，请手动检查"
+        echo "⚠ 未获取到登录链接，请手动运行: sudo tailscale up"
+        echo "  查看日志: cat /tmp/tailscaled.log"
     fi
 fi
 
