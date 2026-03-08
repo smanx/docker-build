@@ -173,20 +173,39 @@ jobs:
             echo "✓ 解密测试通过"
             echo ""
             
-            echo "正在解压（文件较大，请耐心等待）..."
-            # 解密并解压
-            openssl enc -aes-256-cbc -d -salt -pbkdf2 -pass pass:"$PASSWORD" -in backup.tar.gz.enc 2>/dev/null | sudo tar -zxpf - -C / --overwrite 2>&1
+            # 创建临时目录
+            RESTORE_TMP=$(mktemp -d)
+            echo "解压到临时目录: ${RESTORE_TMP}"
+            
+            echo "正在解压..."
+            # 解密并解压到临时目录
+            openssl enc -aes-256-cbc -d -salt -pbkdf2 -pass pass:"$PASSWORD" -in backup.tar.gz.enc 2>/dev/null | sudo tar -zxpf - -C "$RESTORE_TMP" 2>&1
             TAR_EXIT=${PIPESTATUS[1]}
+            
+            if [ $TAR_EXIT -ne 0 ]; then
+              echo "❌ 解压失败"
+              sudo rm -rf "$RESTORE_TMP"
+              exit 1
+            fi
+            
+            echo "✓ 解压完成"
+            echo ""
+            
+            echo "正在同步文件到目标目录..."
+            # 同步到根目录（保留权限）
+            sudo rsync -a --delete "$RESTORE_TMP/" / 2>&1
+            RSYNC_EXIT=$?
+            
+            # 清理临时目录
+            sudo rm -rf "$RESTORE_TMP"
             
             RESTORE_END=$(date +%s)
             RESTORE_TIME=$((RESTORE_END - RESTORE_START))
             
-            if [ $TAR_EXIT -eq 0 ]; then
-              echo ""
+            if [ $RSYNC_EXIT -eq 0 ]; then
               echo "✅ 备份恢复完成 (耗时: ${RESTORE_TIME} 秒)"
             else
-              echo ""
-              echo "❌ 解压失败 (耗时: ${RESTORE_TIME} 秒)"
+              echo "❌ 同步失败 (耗时: ${RESTORE_TIME} 秒)"
               exit 1
             fi
             
