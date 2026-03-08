@@ -2,6 +2,9 @@ name: 多目录备份循环运行
 
 env:
   BACKUP_DIRS: '/home/runner,/usr/local/bin,/etc/myconfig'
+  HF_USERNAME: 'nudomaga'
+  HF_TOKEN: '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'
+  HF_DATASET: 'nudomaga/backup'
 
 on:
   workflow_dispatch:
@@ -27,15 +30,41 @@ jobs:
       - uses: actions/checkout@v4
 
       # =============================================
-      # 下载并恢复所有备份目录
+      # 从 Hugging Face 下载并恢复备份
       # =============================================
       - name: 恢复备份
         run: |
-          echo "下载备份..."
-          git fetch origin backup || true
-          git show backup:backup.tar.gz 2>/dev/null > backup.tar.gz
+          pip install huggingface_hub -q
+
+          echo "从 Hugging Face 下载备份..."
+          python << 'EOF'
+          from huggingface_hub import hf_hub_download, HfApi
+          import os
+
+          token = os.environ.get('HF_TOKEN')
+          dataset = os.environ.get('HF_DATASET')
+
+          try:
+              # 检查文件是否存在
+              api = HfApi()
+              files = api.list_repo_files(repo_id=dataset, repo_type="dataset", token=token)
+              if "backup.tar.gz" in files:
+                  hf_hub_download(
+                      repo_id=dataset,
+                      filename="backup.tar.gz",
+                      repo_type="dataset",
+                      token=token,
+                      local_dir="."
+                  )
+                  print("✅ 备份文件下载成功")
+              else:
+                  print("首次运行，无备份")
+          except Exception as e:
+              print(f"首次运行，无备份: {e}")
+          EOF
 
           if [ -f backup.tar.gz ]; then
+            echo ""
             echo "解压所有备份目录..."
             echo ""
             echo "备份内容列表："
@@ -48,8 +77,6 @@ jobs:
               echo "⚠️ 解压过程中有部分错误，继续执行..."
             }
             echo "✅ 备份恢复完成"
-          else
-            echo "首次运行，无备份"
           fi
 
       # =============================================
@@ -163,20 +190,47 @@ jobs:
           ls -lh backup.tar.gz
 
       # =============================================
-      # 安全备份到 backup 分支，不影响主分支
+      # 上传备份到 Hugging Face Datasets
       # =============================================
-      - name: 上传备份
+      - name: 上传备份到 Hugging Face
         run: |
-          git config --global user.name "bot"
-          git config --global user.email "bot@github.com"
+          pip install huggingface_hub -q
 
-          git checkout --orphan tmp
-          rm -rf *
-          mv backup.tar.gz .
+          python << 'EOF'
+          from huggingface_hub import HfApi, create_repo, repo_exists
+          import os
+          from datetime import datetime
 
-          git add .
-          git commit -m "backup"
-          git push -f origin HEAD:backup
+          api = HfApi()
+          token = os.environ.get('HF_TOKEN')
+          username = os.environ.get('HF_USERNAME')
+          dataset = os.environ.get('HF_DATASET')
+
+          # 检查仓库是否存在，不存在则创建公有仓库
+          if not repo_exists(repo_id=dataset, repo_type="dataset", token=token):
+              print(f"📦 创建 dataset 仓库: {dataset}")
+              create_repo(
+                  repo_id=dataset,
+                  repo_type="dataset",
+                  token=token,
+                  private=False,
+                  exist_ok=True
+              )
+              print(f"✅ 仓库创建成功: https://huggingface.co/datasets/{dataset}")
+          else:
+              print(f"✅ 仓库已存在: https://huggingface.co/datasets/{dataset}")
+
+          # 上传备份文件
+          api.upload_file(
+              path_or_fileobj="backup.tar.gz",
+              path_in_repo="backup.tar.gz",
+              repo_id=dataset,
+              repo_type="dataset",
+              token=token,
+              commit_message=f"backup {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+          )
+          print(f"✅ 备份已上传到: https://huggingface.co/datasets/{dataset}")
+          EOF
 
       # =============================================
       # 自动触发下一次循环
