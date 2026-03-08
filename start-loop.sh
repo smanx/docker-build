@@ -22,32 +22,35 @@ sudo snap install ttyd --classic &
 # 后台并行安装（加快启动速度）
 echo "后台并行安装 opencode、iflow-cli、code-server、openclaw、Cloudflared、Tailscale..."
 
-# opencode
-if command -v opencode &> /dev/null; then
+# 系统级安装目录
+INSTALL_DIR="/usr/local/bin"
+
+# opencode - 系统级安装
+if [ -x "$INSTALL_DIR/opencode" ]; then
     echo "✓ opencode 已存在，跳过安装"
 else
-    (curl -fsSL https://opencode.ai/install | bash) &
+    (INSTALL_DIR="$INSTALL_DIR" curl -fsSL https://opencode.ai/install | sudo bash) &
 fi
 
-# iflow-cli
-if command -v iflow &> /dev/null; then
+# iflow-cli - 系统级安装
+if [ -x "$INSTALL_DIR/iflow" ]; then
     echo "✓ iflow-cli 已存在，跳过安装"
 else
-    (bash -c "$(curl -fsSL https://gitee.com/iflow-ai/iflow-cli/raw/main/install.sh)") &
+    (curl -fsSL https://gitee.com/iflow-ai/iflow-cli/raw/main/install.sh | sudo INSTALL_DIR="$INSTALL_DIR" bash) &
 fi
 
-# code-server
-if command -v code-server &> /dev/null; then
+# code-server - 系统级安装
+if [ -x "$INSTALL_DIR/code-server" ]; then
     echo "✓ code-server 已存在，跳过安装"
 else
-    (curl -fsSL https://code-server.dev/install.sh | sh) &
+    (sudo INSTALL_DIR="$INSTALL_DIR" curl -fsSL https://code-server.dev/install.sh | sh) &
 fi
 
-# openclaw
-if command -v openclaw &> /dev/null; then
+# openclaw - 系统级安装
+if [ -x "$INSTALL_DIR/openclaw" ]; then
     echo "✓ openclaw 已存在，跳过安装"
 else
-    (curl -fsSL https://openclaw.ai/install.sh | bash) &
+    (INSTALL_DIR="$INSTALL_DIR" curl -fsSL https://openclaw.ai/install.sh | sudo bash) &
 fi
 
 # 后台安装 Cloudflared

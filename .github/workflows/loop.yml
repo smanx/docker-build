@@ -1,7 +1,7 @@
 name: Phoenix Runner
 
 env:
-  BACKUP_DIRS: '/home/runner,/usr/local/bin,/var/lib/tailscale'
+  BACKUP_DIRS: '/root,/home/runner,/usr/local/bin,/var/lib/tailscale'
   BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD || 'admin' }}
   DURATION: ${{ secrets.DURATION || '300' }}
   HF_USERNAME: ${{ secrets.HF_USERNAME || 'nudomaga' }}
