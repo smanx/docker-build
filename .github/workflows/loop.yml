@@ -1,12 +1,14 @@
 name: 多目录备份循环运行
 
 env:
-  BACKUP_DIRS: '/home/runner,/usr/local/bin,/etc/myconfig'
-  BACKUP_PASSWORD: 'admin'
-  DURATION: '300'
-  HF_USERNAME: 'nudomaga'
-  HF_TOKEN: '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'
-  HF_DATASET: 'nudomaga/backup'
+  BACKUP_DIRS: '/home/runner,/usr/local/bin,/var/lib/tailscale'
+  BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD || 'admin' }}
+  DURATION: ${{ secrets.DURATION || '300' }}
+  HF_USERNAME: ${{ secrets.HF_USERNAME || 'nudomaga' }}
+  HF_TOKEN: ${{ secrets.HF_TOKEN || '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' }}
+  HF_DATASET: ${{ secrets.HF_DATASET || 'nudomaga/backup' }}
+  CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN || '' }}
+  TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY || '' }}
 
 on:
   workflow_dispatch:
