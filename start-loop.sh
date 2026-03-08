@@ -20,11 +20,35 @@ sudo apt install snapd tmux -y
 sudo snap install ttyd --classic &
 
 # 后台并行安装（加快启动速度）
-echo "后台并行安装 opencode、iflow-cli、code-server、Cloudflared、Tailscale..."
-(curl -fsSL https://opencode.ai/install | bash) &
-(bash -c "$(curl -fsSL https://gitee.com/iflow-ai/iflow-cli/raw/main/install.sh)") &
-(curl -fsSL https://code-server.dev/install.sh | sh) &
-(curl -fsSL https://openclaw.ai/install.sh | bash) &
+echo "后台并行安装 opencode、iflow-cli、code-server、openclaw、Cloudflared、Tailscale..."
+
+# opencode
+if command -v opencode &> /dev/null; then
+    echo "✓ opencode 已存在，跳过安装"
+else
+    (curl -fsSL https://opencode.ai/install | bash) &
+fi
+
+# iflow-cli
+if command -v iflow &> /dev/null; then
+    echo "✓ iflow-cli 已存在，跳过安装"
+else
+    (bash -c "$(curl -fsSL https://gitee.com/iflow-ai/iflow-cli/raw/main/install.sh)") &
+fi
+
+# code-server
+if command -v code-server &> /dev/null; then
+    echo "✓ code-server 已存在，跳过安装"
+else
+    (curl -fsSL https://code-server.dev/install.sh | sh) &
+fi
+
+# openclaw
+if command -v openclaw &> /dev/null; then
+    echo "✓ openclaw 已存在，跳过安装"
+else
+    (curl -fsSL https://openclaw.ai/install.sh | bash) &
+fi
 
 # 后台安装 Cloudflared
 (ARCH=$(uname -m)
