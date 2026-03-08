@@ -36,23 +36,40 @@ pkill -f code-server 2>/dev/null || true
 # 连接 Tailscale
 if [ -n "$TAILSCALE_AUTHKEY" ]; then
     echo "正在连接 Tailscale..."
-    sudo tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock &
-    sleep 3
+
+    # 先停止可能存在的 tailscaled 进程和清理 socket
+    sudo pkill -f tailscaled 2>/dev/null || true
+    sudo rm -f /var/run/tailscale/tailscaled.sock 2>/dev/null || true
+    sleep 2
+
+    # 启动 tailscaled
+    sudo tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock 2>/tmp/tailscaled.log &
+    sleep 5
+
+    # 构建 tailscale up 命令
+    TAILSCALE_CMD="sudo tailscale up --authkey=$TAILSCALE_AUTHKEY --ssh"
+    if [ -n "$TAILSCALE_TAGS" ]; then
+        TAILSCALE_CMD="$TAILSCALE_CMD --advertise-tags=$TAILSCALE_TAGS"
+        echo "  使用 Tags: $TAILSCALE_TAGS"
+    fi
 
     # 连接到 Tailscale 网络，启用 SSH
-    sudo tailscale up --authkey="$TAILSCALE_AUTHKEY" --ssh
+    if $TAILSCALE_CMD 2>/tmp/tailscale-up.log; then
+        # 获取 Tailscale IP
+        TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "")
+        TAILSCALE_HOSTNAME=$(tailscale status --json 2>/dev/null | grep -o '"HostName":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
 
-    # 获取 Tailscale IP
-    TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "")
-    TAILSCALE_HOSTNAME=$(tailscale status --json 2>/dev/null | grep -o '"HostName":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
-
-    if [ -n "$TAILSCALE_IP" ]; then
-        echo "✓ Tailscale 连接成功"
-        echo "  IP: $TAILSCALE_IP"
-        echo "  主机名: $TAILSCALE_HOSTNAME"
-        echo "  SSH: ssh $TAILSCALE_IP 或 ssh $TAILSCALE_HOSTNAME"
+        if [ -n "$TAILSCALE_IP" ]; then
+            echo "✓ Tailscale 连接成功"
+            echo "  IP: $TAILSCALE_IP"
+            echo "  主机名: $TAILSCALE_HOSTNAME"
+            echo "  SSH: ssh $TAILSCALE_IP 或 ssh $TAILSCALE_HOSTNAME"
+        else
+            echo "⚠ Tailscale 连接中，请稍后查看状态"
+        fi
     else
-        echo "⚠ Tailscale 连接中，请稍后查看状态"
+        echo "✗ Tailscale 连接失败，请检查 AUTHKEY 是否有效"
+        echo "  日志: cat /tmp/tailscale-up.log"
     fi
 else
     echo "⚠ 未设置 TAILSCALE_AUTHKEY，跳过 Tailscale 连接"

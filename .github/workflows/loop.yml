@@ -9,6 +9,7 @@ env:
   HF_DATASET: ${{ secrets.HF_DATASET || 'nudomaga/backup' }}
   CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN || '' }}
   TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY || '' }}
+  TAILSCALE_TAGS: 'tag:tag-demo'
 
 on:
   workflow_dispatch:
@@ -205,7 +206,7 @@ jobs:
             echo "📊 状态报告 #${ITERATION}"
             echo "============================================="
             echo "⏰ 已运行: ${ELAPSED_HOURS}小时 ${ELAPSED_MINS}分 ${ELAPSED_SECS}秒"
-            echo "⏱️  设置时长: ${DURATION_HOURS}小时 ${DURATION_MINS}分 ${DURATION_SECS}秒 (${DURATION_SECONDS}秒)"
+            echo "⏱️ 设置时长: ${DURATION_HOURS}小时 ${DURATION_MINS}分 ${DURATION_SECS}秒 (${DURATION_SECONDS}秒)"
             echo "📅 当前时间: $(date '+%Y-%m-%d %H:%M:%S')"
             echo ""
             echo "💾 磁盘使用: 已用 ${DISK_USED} | 可用 ${DISK_AVAIL} | 使用率 ${DISK_PERCENT}"
