@@ -159,14 +159,16 @@ jobs:
             RESTORE_START=$(date +%s)
 
             # 解密并解压，使用 sudo 以保留权限
-            if openssl enc -aes-256-cbc -d -salt -pbkdf2 -pass pass:"$PASSWORD" -in backup.tar.gz.enc | sudo tar -zxpf - -C / --overwrite 2>/dev/null; then
+            if openssl enc -aes-256-cbc -d -salt -pbkdf2 -pass pass:"$PASSWORD" -in backup.tar.gz.enc | sudo tar -zxpf - -C / --overwrite 2>&1; then
               RESTORE_END=$(date +%s)
               RESTORE_TIME=$((RESTORE_END - RESTORE_START))
               echo "✅ 备份恢复完成 (耗时: ${RESTORE_TIME} 秒)"
             else
               RESTORE_END=$(date +%s)
               RESTORE_TIME=$((RESTORE_END - RESTORE_START))
-              echo "⚠️ 解压过程中有部分错误 (耗时: ${RESTORE_TIME} 秒)"
+              echo "❌ 解密解压失败 (耗时: ${RESTORE_TIME} 秒)"
+              echo "   可能原因：密码不匹配或文件损坏"
+              exit 1
             fi
             
             echo ""
@@ -391,12 +393,20 @@ jobs:
           PACK_START=$(date +%s)
 
           # 使用 sudo 以读取所有文件，保留权限 (-p)，pigz 多线程压缩，然后加密
+          # 排除备份文件本身，避免循环打包
           PASSWORD="${{ env.BACKUP_PASSWORD }}"
-          sudo tar -cpf - $VALID_DIRS | pigz -p $(nproc) | openssl enc -aes-256-cbc -salt -pbkdf2 -pass pass:"$PASSWORD" -out backup.tar.gz.enc
-
-          PACK_END=$(date +%s)
-          PACK_TIME=$((PACK_END - PACK_START))
-          echo "✅ 打包加密完成 (耗时: ${PACK_TIME} 秒)"
+          set -o pipefail
+          if sudo tar -cpf - --exclude='backup.tar.gz.enc' --exclude='*.tar.gz.enc' $VALID_DIRS | pigz -p $(nproc) | openssl enc -aes-256-cbc -salt -pbkdf2 -pass pass:"$PASSWORD" -out backup.tar.gz.enc 2>&1; then
+            PACK_END=$(date +%s)
+            PACK_TIME=$((PACK_END - PACK_START))
+            echo "✅ 打包加密完成 (耗时: ${PACK_TIME} 秒)"
+          else
+            PACK_END=$(date +%s)
+            PACK_TIME=$((PACK_END - PACK_START))
+            echo "❌ 打包加密失败 (耗时: ${PACK_TIME} 秒)"
+            exit 1
+          fi
+          set +o pipefail
 
           ls -lh backup.tar.gz.enc
 
