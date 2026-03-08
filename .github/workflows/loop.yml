@@ -341,15 +341,29 @@ jobs:
             exit 1
           fi
 
-          echo ""
-          echo "开始打包并加密..."
+          # 后台并行计算各目录大小（不阻塞打包）
+          SIZE_TMPDIR=$(mktemp -d)
+          (
+            for dir in $VALID_DIRS; do
+              if [ -d "$dir" ]; then
+                DIR_SIZE=$(sudo du -sm "$dir" 2>/dev/null | cut -f1)
+                echo "$dir:${DIR_SIZE}" >> "$SIZE_TMPDIR/sizes.txt"
+              elif [ -f "$dir" ]; then
+                FILE_SIZE=$(sudo du -m "$dir" 2>/dev/null | cut -f1)
+                echo "$dir:${FILE_SIZE}" >> "$SIZE_TMPDIR/sizes.txt"
+              fi
+            done
+            echo "done" > "$SIZE_TMPDIR/complete"
+          ) &
+
+          echo "开始打包并加密（目录大小正在后台计算）..."
           # 使用 sudo 以读取所有文件，保留权限 (-p)，然后加密
           PASSWORD="${{ env.BACKUP_PASSWORD }}"
           sudo tar -zcpf - $VALID_DIRS | openssl enc -aes-256-cbc -salt -pbkdf2 -pass pass:"$PASSWORD" -out backup.tar.gz.enc
 
           ls -lh backup.tar.gz.enc
 
-          # 检查文件大小（GitHub 单文件限制 100MB）
+          # 检查文件大小
           SIZE_BYTES=$(stat -c%s backup.tar.gz.enc)
           SIZE_MB=$((SIZE_BYTES / 1024 / 1024))
 
@@ -358,14 +372,27 @@ jobs:
 
           if [ $SIZE_BYTES -gt 104857600 ]; then
             echo ""
-            echo "❌ 错误：备份文件超过 100MB 限制"
-            echo "请减少备份目录或添加更多排除规则"
-            exit 1
+            echo "⚠️  警告：备份文件较大 (${SIZE_MB} MB)，上传可能需要更长时间"
           elif [ $SIZE_BYTES -gt 52428800 ]; then
             echo ""
-            echo "⚠️  警告：备份文件超过 50MB，接近 GitHub 限制"
+            echo "⚠️  提示：备份文件超过 50MB"
           else
             echo "✅ 备份文件大小正常"
+          fi
+
+          # 输出目录大小（如果后台任务已完成）
+          if [ -f "$SIZE_TMPDIR/complete" ]; then
+            echo ""
+            echo "各目录大小："
+            echo "-------------------------------------------"
+            TOTAL_SIZE=0
+            while IFS=: read -r dir size; do
+              echo "  $dir: ${size} MB"
+              TOTAL_SIZE=$((TOTAL_SIZE + size))
+            done < "$SIZE_TMPDIR/sizes.txt"
+            echo "-------------------------------------------"
+            echo "  总计: ${TOTAL_SIZE} MB"
+            rm -rf "$SIZE_TMPDIR"
           fi
 
       # =============================================
