@@ -159,7 +159,7 @@ jobs:
             RESTORE_START=$(date +%s)
 
             # 解密并解压，使用 sudo 以保留权限
-            if openssl enc -aes-256-cbc -d -pbkdf2 -pass pass:"$PASSWORD" -in backup.tar.gz.enc | sudo tar -zxpf - -C / --overwrite 2>/dev/null; then
+            if openssl enc -aes-256-cbc -d -salt -pbkdf2 -pass pass:"$PASSWORD" -in backup.tar.gz.enc | sudo tar -zxpf - -C / --overwrite 2>/dev/null; then
               RESTORE_END=$(date +%s)
               RESTORE_TIME=$((RESTORE_END - RESTORE_START))
               echo "✅ 备份恢复完成 (耗时: ${RESTORE_TIME} 秒)"
@@ -319,8 +319,8 @@ jobs:
                     echo "============================================="
                     echo "🛑 收到停止信号，执行备份..."
                     echo "============================================="
-                    # 创建标记文件，跳过后续重启
-                    touch /tmp/stop_requested
+                    # 设置环境变量，跳过后续重启
+                    echo "STOP_REQUESTED=true" >> $GITHUB_ENV
                     
                     # 后台异步重置停止信号（防止下次运行时立即停止）
                     (
@@ -499,13 +499,13 @@ jobs:
       # 自动触发下一次循环
       # =============================================
       - name: 重启任务
-        if: hashFiles('/tmp/stop_requested') == ''
+        if: env.STOP_REQUESTED != 'true'
         uses: peter-evans/repository-dispatch@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           event-type: run-next
 
       - name: 停止完成
-        if: hashFiles('/tmp/stop_requested') != ''
+        if: env.STOP_REQUESTED == 'true'
         run: |
           echo "✅ 已按要求停止，不再重启"
