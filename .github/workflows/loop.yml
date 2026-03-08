@@ -192,9 +192,17 @@ jobs:
             echo ""
             
             echo "正在同步文件到目标目录..."
-            # 同步到根目录（保留权限）
-            sudo rsync -a --delete "$RESTORE_TMP/" / 2>&1
-            RSYNC_EXIT=$?
+            # 只同步备份的目录，不要删除其他文件
+            SYNC_ERRORS=0
+            for dir in "$RESTORE_TMP"/*; do
+              if [ -d "$dir" ] || [ -f "$dir" ]; then
+                DIR_NAME=$(basename "$dir")
+                TARGET_DIR="/$DIR_NAME"
+                echo "  同步: $TARGET_DIR"
+                # 不使用 --delete，只覆盖存在的文件
+                sudo rsync -a "$dir/" "$TARGET_DIR/" 2>&1 || SYNC_ERRORS=$((SYNC_ERRORS + 1))
+              fi
+            done
             
             # 清理临时目录
             sudo rm -rf "$RESTORE_TMP"
@@ -202,11 +210,10 @@ jobs:
             RESTORE_END=$(date +%s)
             RESTORE_TIME=$((RESTORE_END - RESTORE_START))
             
-            if [ $RSYNC_EXIT -eq 0 ]; then
+            if [ $SYNC_ERRORS -eq 0 ]; then
               echo "✅ 备份恢复完成 (耗时: ${RESTORE_TIME} 秒)"
             else
-              echo "❌ 同步失败 (耗时: ${RESTORE_TIME} 秒)"
-              exit 1
+              echo "⚠️ 备份恢复完成，但有 ${SYNC_ERRORS} 个错误 (耗时: ${RESTORE_TIME} 秒)"
             fi
             
             echo ""
