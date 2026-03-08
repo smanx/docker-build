@@ -25,6 +25,13 @@ echo "后台并行安装 opencode、iflow-cli、code-server、openclaw、Cloudfl
 # 系统级安装目录
 INSTALL_DIR="/usr/local/bin"
 
+# 后台安装 Tailscale
+if command -v tailscale &> /dev/null; then
+    echo "✓ tailscale 已存在，跳过安装"
+else
+    (curl -fsSL https://tailscale.com/install.sh | sh) &
+fi
+
 # opencode - 系统级安装
 if [ -x "$INSTALL_DIR/opencode" ]; then
     echo "✓ opencode 已存在，跳过安装"
@@ -65,13 +72,6 @@ else
      fi
      chmod +x cloudflared
      sudo mv cloudflared /usr/local/bin/) &
-fi
-
-# 后台安装 Tailscale
-if command -v tailscale &> /dev/null; then
-    echo "✓ tailscale 已存在，跳过安装"
-else
-    (curl -fsSL https://tailscale.com/install.sh | sh) &
 fi
 
 # 等待所有后台安装完成
