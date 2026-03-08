@@ -303,6 +303,27 @@ jobs:
                     echo "============================================="
                     # 创建标记文件，跳过后续重启
                     touch /tmp/stop_requested
+                    
+                    # 后台异步重置停止信号（防止下次运行时立即停止）
+                    (
+                      pip install huggingface_hub -q 2>/dev/null
+                      python3 << 'PYEOF' 2>/dev/null
+                    from huggingface_hub import HfApi
+                    import os
+                    import json
+                    api = HfApi()
+                    content = json.dumps({"stop": False, "timestamp": "", "reset_by": "loop"})
+                    api.upload_file(
+                        path_or_fileobj=content.encode(),
+                        path_in_repo="stop.json",
+                        repo_id=os.environ.get("HF_DATASET"),
+                        repo_type="dataset",
+                        token=os.environ.get("HF_TOKEN")
+                    )
+                    print("✅ 停止信号已重置")
+                    PYEOF
+                    ) &
+                    
                     break 2
                   fi
                 fi
@@ -425,8 +446,8 @@ jobs:
           git lfs track "*.tar.gz"
           git lfs track "*.tar.gz.enc"
 
-          # 复制备份文件
-          cp ../../backup.tar.gz.enc .
+          # 移动备份文件（避免复制的 IO 开销）
+          mv ../backup.tar.gz.enc .
 
           # 重置停止信号（防止下次运行时立即停止）
           echo '{"stop": false, "timestamp": "'$(date -Iseconds)'"}' > stop.json
