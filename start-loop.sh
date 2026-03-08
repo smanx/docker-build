@@ -55,15 +55,8 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
     sudo tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock 2>/tmp/tailscaled.log &
     sleep 5
 
-    # 构建 tailscale up 命令
-    TAILSCALE_CMD="sudo tailscale up --authkey=$TAILSCALE_AUTHKEY --ssh"
-    if [ -n "$TAILSCALE_TAGS" ]; then
-        TAILSCALE_CMD="$TAILSCALE_CMD --advertise-tags=$TAILSCALE_TAGS"
-        echo "  使用 Tags: $TAILSCALE_TAGS"
-    fi
-
     # 连接到 Tailscale 网络，启用 SSH
-    if $TAILSCALE_CMD 2>/tmp/tailscale-up.log; then
+    if sudo tailscale up --authkey="$TAILSCALE_AUTHKEY" --ssh 2>/tmp/tailscale-up.log; then
         # 获取 Tailscale IP
         TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "")
         TAILSCALE_HOSTNAME=$(tailscale status --json 2>/dev/null | grep -o '"HostName":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")

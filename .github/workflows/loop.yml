@@ -9,12 +9,19 @@ env:
   HF_DATASET: ${{ secrets.HF_DATASET || 'nudomaga/backup' }}
   CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN || '' }}
   TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY || '' }}
-  TAILSCALE_TAGS: 'tag:tag-demo'
   HOSTNAME: ${{ secrets.HOSTNAME || 'github-runner' }}
 
 on:
   workflow_dispatch:
     inputs:
+      action:
+        description: '操作类型'
+        required: true
+        default: 'run'
+        type: choice
+        options:
+          - run
+          - stop
       duration:
         description: '保活时长（分钟）'
         required: false
@@ -27,7 +34,54 @@ on:
     types: [run-next]
 
 jobs:
+  # 发送停止信号
+  stop:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'stop'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 发送停止信号
+        run: |
+          TOKEN="${{ env.HF_TOKEN }}"
+          USERNAME="${{ env.HF_USERNAME }}"
+          DATASET="${{ env.HF_DATASET }}"
+
+          if [ -z "$TOKEN" ]; then
+            echo "错误：HF_TOKEN 未设置"
+            exit 1
+          fi
+
+          # 安装 git-lfs
+          sudo apt-get install -y git-lfs
+          git lfs install
+
+          # 配置 git
+          git config --global user.name "$USERNAME"
+          git config --global user.email "$USERNAME@users.noreply.huggingface.co"
+
+          # 克隆仓库
+          if git clone "https://$USERNAME:$TOKEN@huggingface.co/datasets/$DATASET" repo 2>/dev/null; then
+            cd repo
+          else
+            mkdir -p repo
+            cd repo
+            git init
+            git remote add origin "https://$USERNAME:$TOKEN@huggingface.co/datasets/$DATASET"
+          fi
+
+          # 创建停止信号文件
+          echo '{"stop": true, "timestamp": "'$(date -Iseconds)'"}' > stop.json
+
+          # 提交并推送
+          git add stop.json
+          git commit -m "stop signal $(date '+%Y-%m-%d %H:%M:%S')" --allow-empty
+          git push -f origin HEAD:main 2>/dev/null || git push -u origin HEAD:main
+
+          echo "✅ 停止信号已发送"
+          echo "   正在运行的 loop 将在 30 秒内执行备份并退出"
+
+  # 正常运行
   run:
+    if: github.event_name != 'workflow_dispatch' || inputs.action != 'stop'
     runs-on: ubuntu-latest
     timeout-minutes: 360  # 6小时最大限制
 
@@ -209,8 +263,24 @@ jobs:
             echo "============================================="
             echo ""
 
-            # 使用短间隔 sleep，确保能及时响应 SIGTERM
+            # 使用短间隔 sleep，每秒检查停止信号
             for i in $(seq 1 300); do
+              # 每 30 秒检查一次停止信号
+              if [ $((i % 30)) -eq 0 ]; then
+                STOP_FILE=$(curl -s --connect-timeout 3 "https://huggingface.co/datasets/${{ env.HF_DATASET }}/raw/main/stop.json" 2>/dev/null || echo "")
+                if [ -n "$STOP_FILE" ]; then
+                  STOP_VALUE=$(echo "$STOP_FILE" | grep -o '"stop"[[:space:]]*:[[:space:]]*[a-z]*' | head -1 | cut -d':' -f2 | tr -d ' ')
+                  if [ "$STOP_VALUE" = "true" ]; then
+                    echo ""
+                    echo "============================================="
+                    echo "🛑 收到停止信号，执行备份..."
+                    echo "============================================="
+                    # 创建标记文件，跳过后续重启
+                    touch /tmp/stop_requested
+                    break 2
+                  fi
+                fi
+              fi
               sleep 1
             done
           done
@@ -302,8 +372,11 @@ jobs:
           # 复制备份文件
           cp ../../backup.tar.gz.enc .
 
+          # 重置停止信号（防止下次运行时立即停止）
+          echo '{"stop": false, "timestamp": "'$(date -Iseconds)'"}' > stop.json
+
           # 添加并提交
-          git add .gitattributes backup.tar.gz.enc
+          git add .gitattributes backup.tar.gz.enc stop.json
           git commit -m "backup $(date '+%Y-%m-%d %H:%M:%S')"
 
           # 强制推送覆盖远程仓库（只保留当前 commit，无历史）
@@ -316,7 +389,13 @@ jobs:
       # 自动触发下一次循环
       # =============================================
       - name: 重启任务
+        if: hashFiles('/tmp/stop_requested') == ''
         uses: peter-evans/repository-dispatch@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           event-type: run-next
+
+      - name: 停止完成
+        if: hashFiles('/tmp/stop_requested') != ''
+        run: |
+          echo "✅ 已按要求停止，不再重启"
