@@ -10,6 +10,7 @@ env:
   CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN || '' }}
   TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY || '' }}
   TAILSCALE_TAGS: 'tag:tag-demo'
+  HOSTNAME: ${{ secrets.HOSTNAME || 'github-runner' }}
 
 on:
   workflow_dispatch:

@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# 设置系统主机名
+if [ -n "$HOSTNAME" ]; then
+    echo "设置主机名: $HOSTNAME"
+    sudo hostnamectl set-hostname "$HOSTNAME"
+    # 更新 /etc/hosts
+    sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$HOSTNAME/" /etc/hosts 2>/dev/null || true
+    echo "✓ 主机名已设置为: $(hostname)"
+fi
+
 echo "正在安装 ttyd、code-server 和 Cloudflared..."
 
 # 安装 ttyd
