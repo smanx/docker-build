@@ -300,6 +300,10 @@ jobs:
             ELAPSED_MINS=$(((ELAPSED % 3600) / 60))
             ELAPSED_SECS=$((ELAPSED % 60))
             
+            DURATION_HOURS=$((DURATION_SECONDS / 3600))
+            DURATION_MINS=$(((DURATION_SECONDS % 3600) / 60))
+            DURATION_SECS=$((DURATION_SECONDS % 60))
+            
             DISK_USED=$(df -h / | tail -1 | awk '{print $3}')
             DISK_AVAIL=$(df -h / | tail -1 | awk '{print $4}')
             DISK_PERCENT=$(df -h / | tail -1 | awk '{print $5}')
@@ -310,6 +314,7 @@ jobs:
             echo "📊 状态报告 #${ITERATION}"
             echo "============================================="
             echo "⏰ 已运行: ${ELAPSED_HOURS}小时 ${ELAPSED_MINS}分 ${ELAPSED_SECS}秒"
+            echo "⏱️ 设置时长: ${DURATION_HOURS}小时 ${DURATION_MINS}分 ${DURATION_SECS}秒 (${DURATION_SECONDS}秒)"
             echo "📅 当前时间: $(date '+%Y-%m-%d %H:%M:%S')"
             echo ""
             echo "💾 磁盘使用: 已用 ${DISK_USED} | 可用 ${DISK_AVAIL} | 使用率 ${DISK_PERCENT}"
