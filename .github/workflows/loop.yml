@@ -91,6 +91,7 @@ jobs:
       # 运行你的项目
       # =============================================
       - name: 安装并启动应用
+        if: inputs.action != 'stop'
         run: |
           if [ -f "start-loop.sh" ]; then
             echo "正在启动应用..."
@@ -100,6 +101,7 @@ jobs:
           fi
 
       - name: 保持工作流运行
+        if: inputs.action != 'stop'
         run: |
           # 备份函数（被 trap 调用）
           do_backup() {
@@ -216,8 +218,10 @@ jobs:
             echo "============================================="
             echo ""
 
-            sleep 300 &
-            wait $!
+            # 使用短间隔 sleep，确保能及时响应 SIGTERM
+            for i in $(seq 1 300); do
+              sleep 1
+            done
           done
 
       # =============================================
