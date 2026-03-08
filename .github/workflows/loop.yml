@@ -14,14 +14,6 @@ env:
 on:
   workflow_dispatch:
     inputs:
-      action:
-        description: '操作类型'
-        required: true
-        default: 'run'
-        type: choice
-        options:
-          - run
-          - stop
       duration:
         description: '保活时长（分钟）'
         required: false
@@ -91,7 +83,6 @@ jobs:
       # 运行你的项目
       # =============================================
       - name: 安装并启动应用
-        if: inputs.action != 'stop'
         run: |
           if [ -f "start-loop.sh" ]; then
             echo "正在启动应用..."
@@ -101,7 +92,6 @@ jobs:
           fi
 
       - name: 保持工作流运行
-        if: inputs.action != 'stop'
         run: |
           # 备份函数（被 trap 调用）
           do_backup() {
