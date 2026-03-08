@@ -128,11 +128,16 @@ jobs:
           sudo apt-get install -y git-lfs
           git lfs install
 
-          echo "从 Hugging Face 下载备份..."
+          echo "============================================="
+          echo "📥 开始下载备份..."
+          echo "============================================="
+          DOWNLOAD_START=$(date +%s)
 
           # 克隆仓库（包含 LFS 文件）
           if git clone "https://$USERNAME:$TOKEN@huggingface.co/datasets/$DATASET" repo 2>/dev/null; then
-            echo "✅ 克隆仓库成功"
+            DOWNLOAD_END=$(date +%s)
+            DOWNLOAD_TIME=$((DOWNLOAD_END - DOWNLOAD_START))
+            echo "✅ 克隆仓库成功 (耗时: ${DOWNLOAD_TIME} 秒)"
             if [ -f "repo/backup.tar.gz.enc" ]; then
               mv repo/backup.tar.gz.enc .
               echo "✅ 备份文件下载成功"
@@ -141,23 +146,36 @@ jobs:
             fi
             rm -rf repo
           else
-            echo "首次运行，无备份"
+            DOWNLOAD_END=$(date +%s)
+            DOWNLOAD_TIME=$((DOWNLOAD_END - DOWNLOAD_START))
+            echo "首次运行，无备份 (耗时: ${DOWNLOAD_TIME} 秒)"
           fi
 
           if [ -f backup.tar.gz.enc ]; then
             echo ""
-            echo "解密并解压备份..."
-            echo ""
-            echo "备份内容列表："
-            openssl enc -aes-256-cbc -d -pbkdf2 -pass pass:"$PASSWORD" -in backup.tar.gz.enc | tar -tzf - | head -20
-            echo "..."
-            echo ""
+            echo "============================================="
+            echo "📦 开始解密解压备份..."
+            echo "============================================="
+            RESTORE_START=$(date +%s)
 
             # 解密并解压，使用 sudo 以保留权限
-            openssl enc -aes-256-cbc -d -pbkdf2 -pass pass:"$PASSWORD" -in backup.tar.gz.enc | sudo tar -zxpf - -C / --overwrite || {
-              echo "⚠️ 解压过程中有部分错误，继续执行..."
-            }
-            echo "✅ 备份恢复完成"
+            if openssl enc -aes-256-cbc -d -pbkdf2 -pass pass:"$PASSWORD" -in backup.tar.gz.enc | sudo tar -zxpf - -C / --overwrite 2>/dev/null; then
+              RESTORE_END=$(date +%s)
+              RESTORE_TIME=$((RESTORE_END - RESTORE_START))
+              echo "✅ 备份恢复完成 (耗时: ${RESTORE_TIME} 秒)"
+            else
+              RESTORE_END=$(date +%s)
+              RESTORE_TIME=$((RESTORE_END - RESTORE_START))
+              echo "⚠️ 解压过程中有部分错误 (耗时: ${RESTORE_TIME} 秒)"
+            fi
+            
+            echo ""
+            echo "============================================="
+            echo "📊 恢复统计"
+            echo "============================================="
+            echo "📥 下载耗时: ${DOWNLOAD_TIME} 秒"
+            echo "📦 解压耗时: ${RESTORE_TIME} 秒"
+            echo "⏱️  总耗时: $((DOWNLOAD_TIME + RESTORE_TIME)) 秒"
           fi
 
       # =============================================
@@ -367,9 +385,18 @@ jobs:
           # 安装 pigz 多线程压缩
           sudo apt-get install -y pigz > /dev/null 2>&1
 
+          echo "============================================="
+          echo "📦 开始打包加密..."
+          echo "============================================="
+          PACK_START=$(date +%s)
+
           # 使用 sudo 以读取所有文件，保留权限 (-p)，pigz 多线程压缩，然后加密
           PASSWORD="${{ env.BACKUP_PASSWORD }}"
           sudo tar -cpf - $VALID_DIRS | pigz -p $(nproc) | openssl enc -aes-256-cbc -salt -pbkdf2 -pass pass:"$PASSWORD" -out backup.tar.gz.enc
+
+          PACK_END=$(date +%s)
+          PACK_TIME=$((PACK_END - PACK_START))
+          echo "✅ 打包加密完成 (耗时: ${PACK_TIME} 秒)"
 
           ls -lh backup.tar.gz.enc
 
@@ -405,6 +432,9 @@ jobs:
             rm -rf "$SIZE_TMPDIR"
           fi
 
+          # 保存打包时间供上传步骤使用
+          echo "PACK_TIME=${PACK_TIME}" >> $GITHUB_ENV
+
       # =============================================
       # 使用 Git LFS 上传备份到 Hugging Face
       # =============================================
@@ -413,6 +443,7 @@ jobs:
           TOKEN="${{ env.HF_TOKEN }}"
           USERNAME="${{ env.HF_USERNAME }}"
           DATASET="${{ env.HF_DATASET }}"
+          PACK_TIME="${{ env.PACK_TIME }}"
 
           # 配置 git
           git config --global user.name "$USERNAME"
@@ -442,10 +473,26 @@ jobs:
           git add .gitattributes backup.tar.gz.enc stop.json
           git commit -m "backup $(date '+%Y-%m-%d %H:%M:%S')"
 
+          echo "============================================="
+          echo "📤 开始上传备份..."
+          echo "============================================="
+          UPLOAD_START=$(date +%s)
+
           # 强制推送覆盖远程仓库（只保留当前 commit，无历史）
           git remote add origin "https://$USERNAME:$TOKEN@huggingface.co/datasets/$DATASET"
           git push -f origin HEAD:main
 
+          UPLOAD_END=$(date +%s)
+          UPLOAD_TIME=$((UPLOAD_END - UPLOAD_START))
+
+          echo ""
+          echo "============================================="
+          echo "📊 备份统计"
+          echo "============================================="
+          echo "📦 打包耗时: ${PACK_TIME:-N/A} 秒"
+          echo "📤 上传耗时: ${UPLOAD_TIME} 秒"
+          echo "⏱️  总耗时: $(((${PACK_TIME:-0} + UPLOAD_TIME))) 秒"
+          echo ""
           echo "✅ 备份已上传到: https://huggingface.co/datasets/$DATASET"
 
       # =============================================
