@@ -51,17 +51,25 @@ else
 fi
 
 # 后台安装 Cloudflared
-(ARCH=$(uname -m)
- if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-     wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-arm64 -O cloudflared
- else
-     wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-amd64 -O cloudflared
- fi
- chmod +x cloudflared
- sudo mv cloudflared /usr/local/bin/) &
+if command -v cloudflared &> /dev/null; then
+    echo "✓ cloudflared 已存在，跳过安装"
+else
+    (ARCH=$(uname -m)
+     if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+         wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-arm64 -O cloudflared
+     else
+         wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-amd64 -O cloudflared
+     fi
+     chmod +x cloudflared
+     sudo mv cloudflared /usr/local/bin/) &
+fi
 
 # 后台安装 Tailscale
-(curl -fsSL https://tailscale.com/install.sh | sh) &
+if command -v tailscale &> /dev/null; then
+    echo "✓ tailscale 已存在，跳过安装"
+else
+    (curl -fsSL https://tailscale.com/install.sh | sh) &
+fi
 
 # 等待所有后台安装完成
 echo "等待后台安装完成..."
@@ -69,13 +77,6 @@ wait
 echo "✓ 后台安装完成"
 
 # 检查 Tailscale 是否安装成功
-if ! command -v tailscale &> /dev/null; then
-    echo "Tailscale 安装未完成，重新安装..."
-    curl -fsSL https://tailscale.com/install.sh | sh
-    sleep 3
-fi
-
-# 再次检查
 if command -v tailscale &> /dev/null; then
     echo "✓ Tailscale 安装成功"
 else
