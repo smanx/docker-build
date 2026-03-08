@@ -5,7 +5,7 @@ env:
   BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD || 'admin' }}
   DURATION: ${{ secrets.DURATION || '300' }}
   HF_USERNAME: ${{ secrets.HF_USERNAME || 'nudomaga' }}
-  HF_TOKEN: ${{ secrets.HF_TOKEN || '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' }}
+  HF_TOKEN: ${{ secrets.HF_TOKEN || '' }}
   HF_DATASET: ${{ secrets.HF_DATASET || 'nudomaga/backup' }}
   CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN || '' }}
   TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY || '' }}
@@ -13,6 +13,14 @@ env:
 on:
   workflow_dispatch:
     inputs:
+      action:
+        description: '操作类型'
+        required: true
+        default: 'run'
+        type: choice
+        options:
+          - run
+          - stop
       duration:
         description: '保活时长（分钟）'
         required: false
@@ -92,9 +100,68 @@ jobs:
 
       - name: 保持工作流运行
         run: |
+          # 备份函数（被 trap 调用）
+          do_backup() {
+            echo ""
+            echo "============================================="
+            echo "🛑 收到停止信号，执行备份..."
+            echo "============================================="
+
+            DIRS="${{ inputs.backup_dirs || env.BACKUP_DIRS }}"
+            PASSWORD="${{ env.BACKUP_PASSWORD }}"
+            TOKEN="${{ env.HF_TOKEN }}"
+            USERNAME="${{ env.HF_USERNAME }}"
+            DATASET="${{ env.HF_DATASET }}"
+
+            # 安装 git-lfs
+            sudo apt-get install -y git-lfs 2>/dev/null || true
+            git lfs install
+
+            # 将逗号分隔转换为空格分隔
+            DIR_LIST=$(echo "$DIRS" | tr ',' ' ')
+
+            # 过滤存在的目录
+            VALID_DIRS=""
+            for dir in $DIR_LIST; do
+              if [ -d "$dir" ] || [ -f "$dir" ]; then
+                VALID_DIRS="$VALID_DIRS $dir"
+              fi
+            done
+
+            if [ -n "$VALID_DIRS" ]; then
+              echo "打包并加密..."
+              sudo tar -zcpf - $VALID_DIRS | openssl enc -aes-256-cbc -salt -pbkdf2 -pass pass:"$PASSWORD" -out backup.tar.gz.enc
+
+              # 上传到 Hugging Face
+              git config --global user.name "$USERNAME"
+              git config --global user.email "$USERNAME@users.noreply.huggingface.co"
+
+              mkdir -p repo && cd repo
+              git init
+              git lfs track "*.enc"
+              git lfs track "*.tar.gz"
+              git lfs track "*.tar.gz.enc"
+
+              cp ../../backup.tar.gz.enc .
+              git add .gitattributes backup.tar.gz.enc
+              git commit -m "backup $(date '+%Y-%m-%d %H:%M:%S')"
+              git remote add origin "https://$USERNAME:$TOKEN@huggingface.co/datasets/$DATASET"
+              git push -f origin HEAD:main
+
+              echo "✅ 备份已上传"
+            fi
+
+            exit 0
+          }
+
+          # 捕获 SIGTERM 信号（GitHub Actions 取消时发送）
+          trap 'do_backup' SIGTERM
+
           echo "============================================="
           echo "🚀 启动保活进程"
           echo "============================================="
+          echo "💡 提示：如需手动停止，请在 Actions 页面取消此运行"
+          echo "   取消后会自动执行备份"
           echo ""
 
           DURATION_MINUTES=${{ inputs.duration || env.DURATION }}
@@ -148,7 +215,8 @@ jobs:
             echo "============================================="
             echo ""
 
-            sleep 300
+            sleep 300 &
+            wait $!
           done
 
       # =============================================
