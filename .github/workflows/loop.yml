@@ -194,6 +194,7 @@ jobs:
             echo "正在同步文件到目标目录..."
             # 只同步备份的目录，不要删除其他文件
             # 排除 start-loop.sh，避免覆盖自定义配置
+            # 排除 Node.js 相关文件，避免覆盖系统预装版本
             SYNC_ERRORS=0
             for dir in "$RESTORE_TMP"/*; do
               if [ -d "$dir" ] || [ -f "$dir" ]; then
@@ -201,8 +202,17 @@ jobs:
                 TARGET_DIR="/$DIR_NAME"
                 echo "  同步: $TARGET_DIR"
                 # 不使用 --delete，只覆盖存在的文件
-                # 排除 start-loop.sh 避免覆盖
-                sudo rsync -a --exclude='start-loop.sh' "$dir/" "$TARGET_DIR/" 2>&1 || SYNC_ERRORS=$((SYNC_ERRORS + 1))
+                # 排除 start-loop.sh 和 Node.js 相关文件
+                sudo rsync -a \
+                  --exclude='start-loop.sh' \
+                  --exclude='node' \
+                  --exclude='nodejs' \
+                  --exclude='npm' \
+                  --exclude='npx' \
+                  --exclude='corepack' \
+                  --exclude='yarn' \
+                  --exclude='pnpm' \
+                  "$dir/" "$TARGET_DIR/" 2>&1 || SYNC_ERRORS=$((SYNC_ERRORS + 1))
               fi
             done
             
