@@ -493,51 +493,57 @@ jobs:
           echo "PACK_TIME=${PACK_TIME}" >> $GITHUB_ENV
 
       # =============================================
-      # 使用 Git LFS 上传备份到 Hugging Face
+      # 使用 huggingface_hub API 上传备份（支持大文件 > 5GB）
       # =============================================
-      - name: 上传备份到 Hugging Face (Git LFS)
+      - name: 上传备份到 Hugging Face
         run: |
           TOKEN="${{ env.HF_TOKEN }}"
-          USERNAME="${{ env.HF_USERNAME }}"
           DATASET="${{ env.HF_DATASET }}"
           PACK_TIME="${{ env.PACK_TIME }}"
 
-          # 配置 git
-          git config --global user.name "$USERNAME"
-          git config --global user.email "$USERNAME@users.noreply.huggingface.co"
-
-          # 安装 git-lfs
-          sudo apt-get install -y git-lfs
-          git lfs install
-
-          # 创建全新的 orphan 分支（无历史记录）
-          mkdir -p repo
-          cd repo
-          git init
-
-          # 配置 LFS 追踪备份文件
-          git lfs track "*.enc"
-          git lfs track "*.tar.gz"
-          git lfs track "*.tar.gz.enc"
-
-          # 移动备份文件（避免复制的 IO 开销）
-          mv ../backup.tar.gz.enc .
-
-          # 重置停止信号（防止下次运行时立即停止）
-          echo '{"stop": false, "timestamp": "'$(date -Iseconds)'"}' > stop.json
-
-          # 添加并提交
-          git add .gitattributes backup.tar.gz.enc stop.json
-          git commit -m "backup $(date '+%Y-%m-%d %H:%M:%S')"
+          # 安装 huggingface_hub
+          pip install huggingface_hub -q
 
           echo "============================================="
           echo "📤 开始上传备份..."
           echo "============================================="
           UPLOAD_START=$(date +%s)
 
-          # 强制推送覆盖远程仓库（只保留当前 commit，无历史）
-          git remote add origin "https://$USERNAME:$TOKEN@huggingface.co/datasets/$DATASET"
-          git push -f origin HEAD:main
+          # 使用 Python API 上传（支持大文件分块上传）
+          python3 << 'EOF'
+          from huggingface_hub import HfApi
+          import os
+          import json
+
+          token = os.environ.get('TOKEN')
+          dataset = os.environ.get('DATASET')
+
+          api = HfApi()
+
+          # 上传统份文件（支持 > 5GB）
+          print("上传备份文件...")
+          api.upload_file(
+              path_or_fileobj="backup.tar.gz.enc",
+              path_in_repo="backup.tar.gz.enc",
+              repo_id=dataset,
+              repo_type="dataset",
+              token=token,
+              commit_message=f"backup {os.popen('date +%Y-%m-%d\\ %H:%M:%S').read().strip()}"
+          )
+
+          # 上传停止信号
+          stop_data = json.dumps({"stop": False, "timestamp": ""})
+          api.upload_file(
+              path_or_fileobj=stop_data.encode(),
+              path_in_repo="stop.json",
+              repo_id=dataset,
+              repo_type="dataset",
+              token=token,
+              commit_message="reset stop signal"
+          )
+
+          print("✅ 上传完成")
+          EOF
 
           UPLOAD_END=$(date +%s)
           UPLOAD_TIME=$((UPLOAD_END - UPLOAD_START))
@@ -551,6 +557,9 @@ jobs:
           echo "⏱️  总耗时: $(((${PACK_TIME:-0} + UPLOAD_TIME))) 秒"
           echo ""
           echo "✅ 备份已上传到: https://huggingface.co/datasets/$DATASET"
+        env:
+          TOKEN: ${{ env.HF_TOKEN }}
+          DATASET: ${{ env.HF_DATASET }}
 
       # =============================================
       # 自动触发下一次循环
