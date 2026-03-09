@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# 添加 snap 路径到 PATH
+export PATH="/snap/bin:$PATH"
+
 # 设置系统主机名
 if [ -n "$HOSTNAME" ]; then
     echo "设置主机名: $HOSTNAME"
@@ -9,8 +12,8 @@ if [ -n "$HOSTNAME" ]; then
     echo "✓ 主机名已设置为: $(hostname)"
 fi
 
-# 重新加载 bash 配置
-source ~/.bashrc
+# 确保 ~/.local/bin 在 PATH 中
+export PATH="$HOME/.local/bin:$PATH"
 
 echo "正在安装 ttyd、code-server、Cloudflared、Tailscale..."
 
@@ -18,6 +21,20 @@ echo "正在安装 ttyd、code-server、Cloudflared、Tailscale..."
 sudo apt update -y
 sudo apt install snapd tmux -y
 sudo snap install ttyd --classic
+
+# 验证 ttyd 是否可用
+if ! command -v ttyd &> /dev/null; then
+    # 尝试使用完整路径
+    if [ -x /snap/bin/ttyd ]; then
+        TTYD_CMD="/snap/bin/ttyd"
+        echo "✓ ttyd 已安装: $TTYD_CMD"
+    else
+        echo "✗ ttyd 安装失败"
+    fi
+else
+    TTYD_CMD="ttyd"
+    echo "✓ ttyd 已安装"
+fi
 
 # 同步安装
 echo "安装 opencode、iflow-cli、code-server、openclaw、Cloudflared、Tailscale..."
@@ -170,7 +187,11 @@ fi
 
 # 启动 ttyd（关键：-W 允许写入，直接运行 bash）
 echo "启动 ttyd..."
-ttyd -p 7681 -W bash &
+if [ -z "$TTYD_CMD" ]; then
+    echo "✗ ttyd 未安装，跳过"
+    exit 1
+fi
+$TTYD_CMD -p 7681 -W bash &
 TTYD_PID=$!
 
 # 等待启动
@@ -181,7 +202,7 @@ if ps -p $TTYD_PID > /dev/null; then
     echo "✓ ttyd 启动成功 (PID: $TTYD_PID)"
 else
     echo "✗ ttyd 启动失败，尝试重新启动..."
-    ttyd -p 7681 -W bash &
+    $TTYD_CMD -p 7681 -W bash &
     TTYD_PID=$!
     sleep 2
 fi
@@ -328,6 +349,3 @@ else
     echo $CLOUDFLARED_TTYD_PID > cloudflared-ttyd.pid
     echo $CLOUDFLARED_CODE_PID > cloudflared-code.pid
 fi
-
-# 重新加载 bash 配置
-source ~/.bashrc
