@@ -143,12 +143,21 @@ if ! command -v tailscale &> /dev/null; then
 else
     echo "正在启动 Tailscale..."
 
-    # 先停止可能存在的 tailscaled 进程和清理 socket
-    sudo pkill -f tailscaled 2>/dev/null || true
+    # 彻底清理 tailscaled 相关进程和资源
+    sudo systemctl stop tailscaled 2>/dev/null || true
+    sudo pkill -9 -x tailscaled 2>/dev/null || true
+    sudo ip link delete tailscale0 2>/dev/null || true
     sudo rm -f /var/run/tailscale/tailscaled.sock 2>/dev/null || true
+    sleep 2
 
-    # 启动 tailscaled
-    sudo tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock 2>/tmp/tailscaled.log &
+    # 使用 systemd 启动（如果可用）
+    if sudo systemctl start tailscaled 2>/dev/null; then
+        echo "✓ 使用 systemd 启动 tailscaled"
+    else
+        # 回退到手动启动
+        echo "手动启动 tailscaled..."
+        sudo tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock 2>/tmp/tailscaled.log &
+    fi
 
     # 等待 socket 就绪（最多 10 秒）
     for i in $(seq 1 10); do
@@ -162,7 +171,7 @@ else
     # 检查 tailscaled 是否运行
     if ! pgrep -x tailscaled > /dev/null; then
         echo "✗ tailscaled 启动失败"
-        cat /tmp/tailscaled.log
+        cat /tmp/tailscaled.log 2>/dev/null || true
     fi
 
     # 检查是否已连接

@@ -331,76 +331,9 @@ jobs:
 
       - name: 保持工作流运行
         run: |
-          # 备份函数（被 trap 调用）
-          do_backup() {
-            echo ""
-            echo "============================================="
-            echo "🛑 收到停止信号，执行备份..."
-            echo "============================================="
-
-            # 优先使用输入参数，否则从文件读取默认列表
-            DIRS_INPUT="${{ inputs.backup_dirs }}"
-            if [ -n "$DIRS_INPUT" ]; then
-              DIRS="$DIRS_INPUT"
-            elif [ -n "${{ env.BACKUP_DIRS_FILE }}" ] && [ -f "${{ env.BACKUP_DIRS_FILE }}" ]; then
-              DIRS="$(paste -sd, "${{ env.BACKUP_DIRS_FILE }}")"
-            else
-              DIRS=""
-            fi
-            PASSWORD="${{ env.BACKUP_PASSWORD }}"
-            TOKEN="${{ env.HF_TOKEN }}"
-            USERNAME="${{ env.HF_USERNAME }}"
-            DATASET="${{ env.HF_DATASET }}"
-
-            # 安装 git-lfs
-            sudo apt-get install -y git-lfs 2>/dev/null || true
-            git lfs install
-
-            # 将逗号/换行分隔转换为空格分隔
-            DIR_LIST=$(printf '%s' "$DIRS" | tr ',\n' '  ')
-
-            # 过滤存在的目录/文件（/root 默认 700，需要 sudo 才能探测是否存在）
-            VALID_DIRS=""
-            for dir in $DIR_LIST; do
-              if sudo test -d "$dir" 2>/dev/null || sudo test -f "$dir" 2>/dev/null; then
-                VALID_DIRS="$VALID_DIRS $dir"
-              fi
-            done
-
-            if [ -n "$VALID_DIRS" ]; then
-              echo "打包并加密..."
-              sudo tar -zcpf - $VALID_DIRS | openssl enc -aes-256-cbc -salt -pbkdf2 -pass pass:"$PASSWORD" -out backup.tar.gz.enc
-
-              # 上传到 Hugging Face
-              git config --global user.name "$USERNAME"
-              git config --global user.email "$USERNAME@users.noreply.huggingface.co"
-
-              mkdir -p repo && cd repo
-              git init
-              git lfs track "*.enc"
-              git lfs track "*.tar.gz"
-              git lfs track "*.tar.gz.enc"
-
-              cp ../../backup.tar.gz.enc .
-              git add .gitattributes backup.tar.gz.enc
-              git commit -m "backup $(date '+%Y-%m-%d %H:%M:%S')"
-              git remote add origin "https://$USERNAME:$TOKEN@huggingface.co/datasets/$DATASET"
-              git push -f origin HEAD:main
-
-              echo "✅ 备份已上传"
-            fi
-
-            exit 0
-          }
-
-          # 捕获 SIGTERM 信号（GitHub Actions 取消时发送）
-          trap 'do_backup' SIGTERM
-
           echo "============================================="
           echo "🚀 启动保活进程"
           echo "============================================="
-          echo "💡 提示：如需手动停止，请在 Actions 页面取消此运行"
-          echo "   取消后会自动执行备份"
           echo ""
 
           DURATION_MINUTES=${{ inputs.duration || env.DURATION }}
@@ -469,7 +402,7 @@ jobs:
                     echo "解析 stop=$STOP_VALUE restart=${RESTART_VALUE:-<missing>}"
                     echo ""
                     echo "============================================="
-                    echo "🛑 收到停止信号，执行备份..."
+                    echo "🛑 收到停止信号"
                     echo "============================================="
                     # 设置环境变量，跳过后续重启
                     echo "STOP_REQUESTED=true" >> $GITHUB_ENV
@@ -478,13 +411,13 @@ jobs:
                     if [ "$RESTART_VALUE" = "true" ]; then
                       echo "RESTART_REQUESTED=true" >> $GITHUB_ENV
                     fi
-                     
+
                     # 后台异步重置停止信号（防止下次运行时立即停止）
                     (
                       pip install huggingface_hub -q 2>/dev/null
                       python3 -c "from huggingface_hub import HfApi; import os, json; api=HfApi(); api.upload_file(path_or_fileobj=json.dumps({'stop':False,'restart':False,'timestamp':'','reset_by':'loop'}).encode(),path_in_repo='stop.json',repo_id=os.environ.get('HF_DATASET'),repo_type='dataset',token=os.environ.get('HF_TOKEN')); print('✅ 停止信号已重置')" 2>/dev/null
                     ) &
-                     
+
                     break 2
                   fi
                 fi
