@@ -1,7 +1,8 @@
 name: Phoenix Runner
 
 env:
-  BACKUP_DIRS: '/root/.opencode,/root/.openclaw,/var/lib/tailscale,/root/.bashrc'
+  # Default backup list lives in a file to keep this workflow readable.
+  BACKUP_DIRS_FILE: '.github/backup-dirs.txt'
   BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD || 'admin' }}
   DURATION: ${{ secrets.DURATION || '300' }}
   HF_USERNAME: ${{ secrets.HF_USERNAME || 'nudomaga' }}
@@ -273,7 +274,15 @@ jobs:
             echo "🛑 收到停止信号，执行备份..."
             echo "============================================="
 
-            DIRS="${{ inputs.backup_dirs || env.BACKUP_DIRS }}"
+            # 优先使用输入参数，否则从文件读取默认列表
+            DIRS_INPUT="${{ inputs.backup_dirs }}"
+            if [ -n "$DIRS_INPUT" ]; then
+              DIRS="$DIRS_INPUT"
+            elif [ -n "${{ env.BACKUP_DIRS_FILE }}" ] && [ -f "${{ env.BACKUP_DIRS_FILE }}" ]; then
+              DIRS="$(paste -sd, "${{ env.BACKUP_DIRS_FILE }}")"
+            else
+              DIRS=""
+            fi
             PASSWORD="${{ env.BACKUP_PASSWORD }}"
             TOKEN="${{ env.HF_TOKEN }}"
             USERNAME="${{ env.HF_USERNAME }}"
@@ -283,8 +292,8 @@ jobs:
             sudo apt-get install -y git-lfs 2>/dev/null || true
             git lfs install
 
-            # 将逗号分隔转换为空格分隔
-            DIR_LIST=$(echo "$DIRS" | tr ',' ' ')
+            # 将逗号/换行分隔转换为空格分隔
+            DIR_LIST=$(printf '%s' "$DIRS" | tr ',\n' '  ')
 
             # 过滤存在的目录
             VALID_DIRS=""
@@ -415,14 +424,21 @@ jobs:
       # =============================================
       - name: 打包所有要备份的目录
         run: |
-          # 优先使用输入参数，否则使用环境变量默认值
-          DIRS="${{ inputs.backup_dirs || env.BACKUP_DIRS }}"
+          # 优先使用输入参数，否则从文件读取默认列表
+          DIRS_INPUT="${{ inputs.backup_dirs }}"
+          if [ -n "$DIRS_INPUT" ]; then
+            DIRS="$DIRS_INPUT"
+          elif [ -n "${{ env.BACKUP_DIRS_FILE }}" ] && [ -f "${{ env.BACKUP_DIRS_FILE }}" ]; then
+            DIRS="$(paste -sd, "${{ env.BACKUP_DIRS_FILE }}")"
+          else
+            DIRS=""
+          fi
 
           echo "备份目录: ${DIRS}"
           echo ""
 
-          # 将逗号分隔转换为空格分隔
-          DIR_LIST=$(echo "$DIRS" | tr ',' ' ')
+          # 将逗号/换行分隔转换为空格分隔
+          DIR_LIST=$(printf '%s' "$DIRS" | tr ',\n' '  ')
 
           # 过滤存在的目录
           VALID_DIRS=""

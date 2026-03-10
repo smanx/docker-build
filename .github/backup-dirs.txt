@@ -1,0 +1,5 @@
+/root/.opencode
+/root/.openclaw
+/var/lib/tailscale
+/root/.bashrc
+/root/.local

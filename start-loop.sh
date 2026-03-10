@@ -15,7 +15,7 @@ fi
 # 确保 ~/.local/bin 在 PATH 中
 export PATH="$HOME/.local/bin:$PATH"
 
-echo "正在安装 ttyd、code-server、Cloudflared、Tailscale..."
+echo "正在安装 ttyd、Cloudflared、Tailscale..."
 
 # 安装 ttyd（snap 依赖）
 sudo apt update -y
@@ -36,11 +36,8 @@ else
     echo "✓ ttyd 已安装"
 fi
 
-# 同步安装
-echo "安装 opencode、iflow-cli、code-server、openclaw、Cloudflared、Tailscale..."
-
-# 系统级安装目录
-INSTALL_DIR="/usr/local/bin"
+# 安装 Cloudflared、Tailscale
+echo "安装 Cloudflared、Tailscale..."
 
 # 安装 Tailscale
 if command -v tailscale &> /dev/null; then
@@ -48,38 +45,6 @@ if command -v tailscale &> /dev/null; then
 else
     echo "安装 Tailscale..."
     curl -fsSL https://tailscale.com/install.sh | sh
-fi
-
-# opencode - 系统级安装
-if [ -x "$INSTALL_DIR/opencode" ]; then
-    echo "✓ opencode 已存在，跳过安装"
-else
-    echo "安装 opencode..."
-    INSTALL_DIR="$INSTALL_DIR" curl -fsSL https://opencode.ai/install | sudo bash
-fi
-
-# iflow-cli - 系统级安装
-if [ -x "$INSTALL_DIR/iflow" ]; then
-    echo "✓ iflow-cli 已存在，跳过安装"
-else
-    echo "安装 iflow-cli..."
-    curl -fsSL https://gitee.com/iflow-ai/iflow-cli/raw/main/install.sh | sudo INSTALL_DIR="$INSTALL_DIR" bash
-fi
-
-# code-server - 系统级安装
-if [ -x "$INSTALL_DIR/code-server" ]; then
-    echo "✓ code-server 已存在，跳过安装"
-else
-    echo "安装 code-server..."
-    curl -fsSL https://code-server.dev/install.sh | INSTALL_DIR="$INSTALL_DIR" sh
-fi
-
-# openclaw - 系统级安装
-if [ -x "$INSTALL_DIR/openclaw" ]; then
-    echo "✓ openclaw 已存在，跳过安装"
-else
-    echo "安装 openclaw..."
-    INSTALL_DIR="$INSTALL_DIR" curl -fsSL https://openclaw.ai/install.sh | sudo bash
 fi
 
 # 安装 Cloudflared
@@ -105,12 +70,17 @@ else
     echo "⚠ Tailscale 安装失败"
 fi
 
+if command -v cloudflared &> /dev/null; then
+    echo "✓ Cloudflared 安装成功"
+else
+    echo "⚠ Cloudflared 安装失败"
+fi
+
 echo "✓ 所有安装完成"
 
 # 停止可能存在的进程
 pkill -f ttyd 2>/dev/null || true
 pkill -f cloudflared 2>/dev/null || true
-pkill -f code-server 2>/dev/null || true
 
 # 连接 Tailscale（手动登录）
 if ! command -v tailscale &> /dev/null; then
@@ -215,25 +185,11 @@ else
     exit 1
 fi
 
-# 启动 code-server
-echo "启动 code-server..."
-code-server --bind-addr 0.0.0.0:8080 --auth none &
-CODE_PID=$!
-sleep 5
-
-# 检查 code-server 是否运行
-if ps -p $CODE_PID > /dev/null; then
-    echo "✓ code-server 启动成功 (PID: $CODE_PID)"
-else
-    echo "✗ code-server 启动失败"
-fi
-
 # 启动 Cloudflared 隧道
 if [ -n "$CF_TUNNEL_TOKEN" ]; then
     echo "使用 Cloudflare 固定隧道..."
     # 固定隧道需要在 Cloudflare 控制台配置路由：
     # ttyd.yourdomain.com -> http://localhost:7681
-    # code.yourdomain.com -> http://localhost:8080
     nohup cloudflared tunnel run --token "$CF_TUNNEL_TOKEN" > cloudflared.log 2>&1 &
     CLOUDFLARED_PID=$!
     sleep 5
@@ -253,11 +209,6 @@ else
     echo "启动 Cloudflared 隧道 (ttyd)..."
     nohup cloudflared tunnel --url http://localhost:7681 > cloudflared-ttyd.log 2>&1 &
     CLOUDFLARED_TTYD_PID=$!
-
-    # 启动 Cloudflared 隧道 (code-server)
-    echo "启动 Cloudflared 隧道 (code-server)..."
-    nohup cloudflared tunnel --url http://localhost:8080 > cloudflared-code.log 2>&1 &
-    CLOUDFLARED_CODE_PID=$!
 fi
 
 # 等待隧道建立
@@ -272,18 +223,6 @@ if [ -z "$CF_TUNNEL_TOKEN" ]; then
         if [ -f cloudflared-ttyd.log ]; then
             TTYD_URL=$(grep -o "https://[a-zA-Z0-9.-]*\.trycloudflare\.com" cloudflared-ttyd.log | head -1)
             if [ -n "$TTYD_URL" ]; then
-                break
-            fi
-        fi
-        sleep 2
-    done
-
-    # 获取 code-server 公共 URL
-    CODE_URL=""
-    for i in {1..10}; do
-        if [ -f cloudflared-code.log ]; then
-            CODE_URL=$(grep -o "https://[a-zA-Z0-9.-]*\.trycloudflare\.com" cloudflared-code.log | head -1)
-            if [ -n "$CODE_URL" ]; then
                 break
             fi
         fi
@@ -314,13 +253,9 @@ if [ -n "$CF_TUNNEL_TOKEN" ]; then
     echo "【固定隧道模式】"
     echo "  请在 Cloudflare 控制台配置域名路由："
     echo "  ttyd.yourdomain.com   -> http://localhost:7681"
-    echo "  code.yourdomain.com   -> http://localhost:8080"
     echo ""
     echo "【ttyd 终端】"
     echo "  本地访问: http://$IP:7681"
-    echo ""
-    echo "【code-server】"
-    echo "  本地访问: http://$IP:8080"
 else
     echo "【ttyd 终端】"
     echo "  本地访问: http://$IP:7681"
@@ -329,23 +264,13 @@ else
     else
         echo "  外网访问: 正在生成... (查看: cat cloudflared-ttyd.log)"
     fi
-    echo ""
-    echo "【code-server】"
-    echo "  本地访问: http://$IP:8080"
-    if [ -n "$CODE_URL" ]; then
-        echo "  外网访问: $CODE_URL"
-    else
-        echo "  外网访问: 正在生成... (查看: cat cloudflared-code.log)"
-    fi
 fi
 echo "=================================================="
 
 # 保存进程信息
 echo $TTYD_PID > ttyd.pid
-echo $CODE_PID > code-server.pid
 if [ -n "$CF_TUNNEL_TOKEN" ]; then
     echo $CLOUDFLARED_PID > cloudflared.pid
 else
     echo $CLOUDFLARED_TTYD_PID > cloudflared-ttyd.pid
-    echo $CLOUDFLARED_CODE_PID > cloudflared-code.pid
 fi
