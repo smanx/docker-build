@@ -1,7 +1,7 @@
 name: Phoenix Runner
 
 env:
-  BACKUP_DIRS: '/root/.config,/root/.openclaw,/var/lib/tailscale'
+  BACKUP_DIRS: '/root/.opencode,/root/.openclaw,/var/lib/tailscale,/root/.bashrc'
   BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD || 'admin' }}
   DURATION: ${{ secrets.DURATION || '300' }}
   HF_USERNAME: ${{ secrets.HF_USERNAME || 'nudomaga' }}
@@ -242,6 +242,21 @@ jobs:
       # =============================================
       - name: 安装并启动应用
         run: |
+          # 备份恢复后，显式重载环境（Actions 的每个 step 是独立 shell，不会自动读取 .bashrc/.profile）
+          # 仅在文件存在时加载；即便加载失败也不中断主流程。
+          if [ -f "/open/.bashrc" ]; then
+            echo "加载环境: /open/.bashrc"
+            . "/open/.bashrc" 2>/dev/null || true
+          fi
+          if [ -f "$HOME/.profile" ]; then
+            echo "加载环境: $HOME/.profile"
+            . "$HOME/.profile" 2>/dev/null || true
+          fi
+          if [ -f "$HOME/.bashrc" ]; then
+            echo "加载环境: $HOME/.bashrc"
+            . "$HOME/.bashrc" 2>/dev/null || true
+          fi
+
           if [ -f "start-loop.sh" ]; then
             echo "正在启动应用..."
             bash start-loop.sh
