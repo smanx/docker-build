@@ -78,37 +78,42 @@ else
     echo "✓ ttyd 已安装"
 fi
 
-# 安装 Cloudflared、Tailscale
-echo "安装 Cloudflared、Tailscale..."
-
-# 安装 Tailscale
+# 并行安装 Tailscale 和 Cloudflared
 step_start
-echo ">>> [2/3] 安装 Tailscale"
-if command -v tailscale &> /dev/null; then
-    echo "✓ tailscale 已存在，跳过安装"
-else
-    echo "安装 Tailscale..."
+echo ">>> [2/3] 并行安装 Tailscale 和 Cloudflared..."
+
+# 后台安装 Tailscale
+(
+  if ! command -v tailscale &> /dev/null; then
     curl -fsSL https://tailscale.com/install.sh | sh
-fi
-step_end "安装 Tailscale"
+    echo "done" > /tmp/ts-install.done
+  else
+    echo "done" > /tmp/ts-install.done
+  fi
+) &
+TS_PID=$!
 
-# 安装 Cloudflared
-step_start
-echo ">>> [3/3] 安装 Cloudflared"
-if command -v cloudflared &> /dev/null; then
-    echo "✓ cloudflared 已存在，跳过安装"
-else
-    echo "安装 Cloudflared..."
+# 后台安装 Cloudflared
+(
+  if ! command -v cloudflared &> /dev/null; then
     ARCH=$(uname -m)
     if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-        wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-arm64 -O cloudflared
+      wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-arm64 -O /tmp/cloudflared
     else
-        wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-amd64 -O cloudflared
+      wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-amd64 -O /tmp/cloudflared
     fi
-    chmod +x cloudflared
-    sudo mv cloudflared /usr/local/bin/
-fi
-step_end "安装 Cloudflared"
+    chmod +x /tmp/cloudflared
+    sudo mv /tmp/cloudflared /usr/local/bin/
+    echo "done" > /tmp/cf-install.done
+  else
+    echo "done" > /tmp/cf-install.done
+  fi
+) &
+CF_PID=$!
+
+# 等待两个安装完成
+wait $TS_PID $CF_PID
+step_end "并行安装 Tailscale/Cloudflared"
 
 # 检查安装结果
 echo "检查安装结果..."
@@ -141,11 +146,18 @@ else
     # 先停止可能存在的 tailscaled 进程和清理 socket
     sudo pkill -f tailscaled 2>/dev/null || true
     sudo rm -f /var/run/tailscale/tailscaled.sock 2>/dev/null || true
-    sleep 2
 
     # 启动 tailscaled
     sudo tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock 2>/tmp/tailscaled.log &
-    sleep 5
+
+    # 等待 socket 就绪（最多 10 秒）
+    for i in $(seq 1 10); do
+      if [ -S /var/run/tailscale/tailscaled.sock ]; then
+        echo "✓ tailscaled socket 就绪"
+        break
+      fi
+      sleep 1
+    done
 
     # 检查 tailscaled 是否运行
     if ! pgrep -x tailscaled > /dev/null; then
@@ -216,8 +228,14 @@ fi
 $TTYD_CMD -p 7681 -W bash &
 TTYD_PID=$!
 
-# 等待启动
-sleep 3
+# 等待端口就绪（最多 5 秒）
+for i in $(seq 1 5); do
+  if netstat -tuln | grep -q ":7681"; then
+    echo "✓ ttyd 端口就绪"
+    break
+  fi
+  sleep 1
+done
 
 # 检查 ttyd 是否运行
 if ps -p $TTYD_PID > /dev/null; then
@@ -226,7 +244,6 @@ else
     echo "✗ ttyd 启动失败，尝试重新启动..."
     $TTYD_CMD -p 7681 -W bash &
     TTYD_PID=$!
-    sleep 2
 fi
 
 # 检查端口
@@ -243,15 +260,19 @@ step_start
 echo ">>> 启动 Cloudflared 隧道"
 if [ -n "$CF_TUNNEL_TOKEN" ]; then
     echo "使用 Cloudflare 固定隧道..."
-    # 固定隧道需要在 Cloudflare 控制台配置路由：
-    # ttyd.yourdomain.com -> http://localhost:7681
     nohup cloudflared tunnel run --token "$CF_TUNNEL_TOKEN" > cloudflared.log 2>&1 &
     CLOUDFLARED_PID=$!
-    sleep 5
 
-    if ps -p $CLOUDFLARED_PID > /dev/null; then
-        echo "✓ 固定隧道启动成功 (PID: $CLOUDFLARED_PID)"
-    else
+    # 等待进程启动（最多 5 秒）
+    for i in $(seq 1 5); do
+      if ps -p $CLOUDFLARED_PID > /dev/null; then
+        echo "✓ 固定隧道进程启动 (PID: $CLOUDFLARED_PID)"
+        break
+      fi
+      sleep 1
+    done
+
+    if ! ps -p $CLOUDFLARED_PID > /dev/null; then
         echo "✗ 固定隧道启动失败，请检查 Token"
         cat cloudflared.log
     fi
@@ -259,30 +280,24 @@ if [ -n "$CF_TUNNEL_TOKEN" ]; then
 else
     # 使用临时隧道（每次 URL 会变）
     echo "使用 Cloudflare 临时隧道..."
-
-    # 启动 Cloudflared 隧道 (ttyd)
-    echo "启动 Cloudflared 隧道 (ttyd)..."
     nohup cloudflared tunnel --url http://localhost:7681 > cloudflared-ttyd.log 2>&1 &
     CLOUDFLARED_TTYD_PID=$!
 fi
-
-# 等待隧道建立
-echo "等待隧道建立..."
-sleep 10
 step_end "启动 Cloudflared 隧道"
 
 # 获取 URL（仅临时隧道需要）
 if [ -z "$CF_TUNNEL_TOKEN" ]; then
-    # 获取 ttyd 公共 URL
+    # 获取 ttyd 公共 URL（最多等待 20 秒）
     TTYD_URL=""
-    for i in {1..10}; do
+    for i in $(seq 1 20); do
         if [ -f cloudflared-ttyd.log ]; then
             TTYD_URL=$(grep -o "https://[a-zA-Z0-9.-]*\.trycloudflare\.com" cloudflared-ttyd.log | head -1)
             if [ -n "$TTYD_URL" ]; then
+                echo "✓ 隧道 URL 已生成"
                 break
             fi
         fi
-        sleep 2
+        sleep 1
     done
 fi
 
