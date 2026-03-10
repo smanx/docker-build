@@ -109,8 +109,9 @@ jobs:
           git commit -m "stop signal $(date '+%Y-%m-%d %H:%M:%S')" --allow-empty
           git push -f origin HEAD:main 2>/dev/null || git push -u origin HEAD:main
 
-          echo "✅ 停止信号已发送"
-          echo "   正在运行的 loop 将在 30 秒内执行备份并退出"
+            echo "✅ 停止信号已发送"
+            echo "   正在运行的 loop 将在 30 秒内执行备份并退出"
+            echo "   restart: $RESTART"
 
   # 正常运行
   run:
@@ -400,11 +401,15 @@ jobs:
             for i in $(seq 1 300); do
               # 每 30 秒检查一次停止信号
               if [ $((i % 30)) -eq 0 ]; then
-                STOP_FILE=$(curl -s --connect-timeout 3 "https://huggingface.co/datasets/${{ env.HF_DATASET }}/raw/main/stop.json" 2>/dev/null || echo "")
+                # Hugging Face raw may be cached; add a cache-busting query param.
+                STOP_URL="https://huggingface.co/datasets/${{ env.HF_DATASET }}/raw/main/stop.json?t=$(date +%s)"
+                STOP_FILE=$(curl -s -H 'Cache-Control: no-cache' --connect-timeout 3 "$STOP_URL" 2>/dev/null || echo "")
                 if [ -n "$STOP_FILE" ]; then
                   STOP_VALUE=$(echo "$STOP_FILE" | grep -o '"stop"[[:space:]]*:[[:space:]]*[a-z]*' | head -1 | cut -d':' -f2 | tr -d ' ')
                   if [ "$STOP_VALUE" = "true" ]; then
                     RESTART_VALUE=$(echo "$STOP_FILE" | grep -o '"restart"[[:space:]]*:[[:space:]]*[a-z]*' | head -1 | cut -d':' -f2 | tr -d ' ')
+                    echo "stop.json: $STOP_FILE"
+                    echo "解析 stop=$STOP_VALUE restart=${RESTART_VALUE:-<missing>}"
                     echo ""
                     echo "============================================="
                     echo "🛑 收到停止信号，执行备份..."
@@ -618,18 +623,19 @@ jobs:
       # 自动触发下一次循环
       # =============================================
       - name: 重启任务
-        if: env.STOP_REQUESTED != 'true' || env.RESTART_REQUESTED == 'true'
+        # 确保即使前面打包/上传失败也能触发下一次（尤其是 restart 模式）
+        if: always() && (env.STOP_REQUESTED != 'true' || env.RESTART_REQUESTED == 'true')
         uses: peter-evans/repository-dispatch@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           event-type: run-next
 
       - name: 停止完成
-        if: env.STOP_REQUESTED == 'true' && env.RESTART_REQUESTED != 'true'
+        if: always() && env.STOP_REQUESTED == 'true' && env.RESTART_REQUESTED != 'true'
         run: |
           echo "✅ 已按要求停止，不再重启"
 
       - name: 重启完成
-        if: env.RESTART_REQUESTED == 'true'
+        if: always() && env.RESTART_REQUESTED == 'true'
         run: |
           echo "✅ 已按要求重启：完成备份并触发下一次运行"
