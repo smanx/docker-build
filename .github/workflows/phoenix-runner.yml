@@ -301,10 +301,10 @@ jobs:
             # 将逗号/换行分隔转换为空格分隔
             DIR_LIST=$(printf '%s' "$DIRS" | tr ',\n' '  ')
 
-            # 过滤存在的目录
+            # 过滤存在的目录/文件（/root 默认 700，需要 sudo 才能探测是否存在）
             VALID_DIRS=""
             for dir in $DIR_LIST; do
-              if [ -d "$dir" ] || [ -f "$dir" ]; then
+              if sudo test -d "$dir" 2>/dev/null || sudo test -f "$dir" 2>/dev/null; then
                 VALID_DIRS="$VALID_DIRS $dir"
               fi
             done
@@ -452,10 +452,10 @@ jobs:
           # 将逗号/换行分隔转换为空格分隔
           DIR_LIST=$(printf '%s' "$DIRS" | tr ',\n' '  ')
 
-          # 过滤存在的目录
+          # 过滤存在的目录/文件（/root 默认 700，需要 sudo 才能探测是否存在）
           VALID_DIRS=""
           for dir in $DIR_LIST; do
-            if [ -d "$dir" ] || [ -f "$dir" ]; then
+            if sudo test -d "$dir" 2>/dev/null || sudo test -f "$dir" 2>/dev/null; then
               VALID_DIRS="$VALID_DIRS $dir"
               echo "✓ $dir"
             else
@@ -472,10 +472,10 @@ jobs:
           SIZE_TMPDIR=$(mktemp -d)
           (
             for dir in $VALID_DIRS; do
-              if [ -d "$dir" ]; then
+              if sudo test -d "$dir" 2>/dev/null; then
                 DIR_SIZE=$(sudo du -sm "$dir" 2>/dev/null | cut -f1)
                 echo "$dir:${DIR_SIZE}" >> "$SIZE_TMPDIR/sizes.txt"
-              elif [ -f "$dir" ]; then
+              elif sudo test -f "$dir" 2>/dev/null; then
                 FILE_SIZE=$(sudo du -m "$dir" 2>/dev/null | cut -f1)
                 echo "$dir:${FILE_SIZE}" >> "$SIZE_TMPDIR/sizes.txt"
               fi
