@@ -274,3 +274,15 @@ if [ -n "$CF_TUNNEL_TOKEN" ]; then
 else
     echo $CLOUDFLARED_TTYD_PID > cloudflared-ttyd.pid
 fi
+
+# 可选：执行自定义启动脚本
+CUSTOM_START="/root/mydata/start.sh"
+if sudo test -f "$CUSTOM_START" 2>/dev/null; then
+    echo ""
+    echo "检测到自定义启动脚本: $CUSTOM_START"
+    if sudo test -x "$CUSTOM_START" 2>/dev/null; then
+        sudo -E "$CUSTOM_START" || echo "⚠ 自定义启动脚本执行失败: $CUSTOM_START"
+    else
+        sudo -E bash "$CUSTOM_START" || echo "⚠ 自定义启动脚本执行失败: $CUSTOM_START"
+    fi
+fi
