@@ -132,6 +132,16 @@ jobs:
           DATASET="${{ env.HF_DATASET }}"
           PASSWORD="${{ env.BACKUP_PASSWORD }}"
 
+          # 计算期望恢复的条目列表（用于恢复完成后的明细输出）
+          DIRS_INPUT="${{ inputs.backup_dirs }}"
+          if [ -n "$DIRS_INPUT" ]; then
+            EXPECTED_DIRS="$DIRS_INPUT"
+          elif [ -n "${{ env.BACKUP_DIRS_FILE }}" ] && [ -f "${{ env.BACKUP_DIRS_FILE }}" ]; then
+            EXPECTED_DIRS="$(paste -sd, "${{ env.BACKUP_DIRS_FILE }}")"
+          else
+            EXPECTED_DIRS=""
+          fi
+
           # 安装 git-lfs
           sudo apt-get install -y git-lfs
           git lfs install
@@ -211,19 +221,56 @@ jobs:
                 echo "  同步: $TARGET_DIR"
                 # 不使用 --delete，只覆盖存在的文件
                 # 排除 start-loop.sh 和 Node.js 相关文件
-                sudo rsync -a \
-                  --exclude='start-loop.sh' \
-                  --exclude='node' \
-                  --exclude='nodejs' \
-                  --exclude='npm' \
-                  --exclude='npx' \
-                  --exclude='corepack' \
-                  --exclude='yarn' \
-                  --exclude='pnpm' \
-                  "$dir/" "$TARGET_DIR/" 2>&1 || SYNC_ERRORS=$((SYNC_ERRORS + 1))
+                if [ -d "$dir" ]; then
+                  sudo rsync -a \
+                    --exclude='start-loop.sh' \
+                    --exclude='node' \
+                    --exclude='nodejs' \
+                    --exclude='npm' \
+                    --exclude='npx' \
+                    --exclude='corepack' \
+                    --exclude='yarn' \
+                    --exclude='pnpm' \
+                    "$dir/" "$TARGET_DIR/" 2>&1 || SYNC_ERRORS=$((SYNC_ERRORS + 1))
+                else
+                  sudo rsync -a \
+                    --exclude='start-loop.sh' \
+                    --exclude='node' \
+                    --exclude='nodejs' \
+                    --exclude='npm' \
+                    --exclude='npx' \
+                    --exclude='corepack' \
+                    --exclude='yarn' \
+                    --exclude='pnpm' \
+                    "$dir" "$TARGET_DIR" 2>&1 || SYNC_ERRORS=$((SYNC_ERRORS + 1))
+                fi
               fi
             done
-            
+
+            echo ""
+            echo "============================================="
+            echo "📋 恢复明细（完整路径与大小）"
+            echo "============================================="
+
+            if [ -n "$EXPECTED_DIRS" ]; then
+              # 允许逗号/换行分隔
+              EXPECTED_LIST=$(printf '%s' "$EXPECTED_DIRS" | tr ',\n' '  ')
+
+              for p in $EXPECTED_LIST; do
+                if sudo test -d "$p" 2>/dev/null; then
+                  SZ=$(sudo du -sm "$p" 2>/dev/null | cut -f1)
+                  echo "✓ $p  (dir: ${SZ} MB)"
+                elif sudo test -f "$p" 2>/dev/null; then
+                  SZ=$(sudo du -m "$p" 2>/dev/null | cut -f1)
+                  echo "✓ $p  (file: ${SZ} MB)"
+                else
+                  echo "✗ $p  (未找到/无权限)"
+                fi
+              done
+            else
+              echo "(未配置 backup_dirs 或 ${BACKUP_DIRS_FILE}，跳过明细输出)"
+            fi
+             
             # 清理临时目录
             sudo rm -rf "$RESTORE_TMP"
             
