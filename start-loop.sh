@@ -1,9 +1,47 @@
 #!/bin/bash
 
+# ========== 耗时统计函数 ==========
+SCRIPT_START_TIME=$(date +%s)
+
+# 记录步骤开始时间
+step_start() {
+    STEP_START_TIME=$(date +%s)
+}
+
+# 打印步骤耗时
+step_end() {
+    local step_name="$1"
+    local step_end_time=$(date +%s)
+    local duration=$((step_end_time - STEP_START_TIME))
+    local mins=$((duration / 60))
+    local secs=$((duration % 60))
+    if [ $mins -gt 0 ]; then
+        echo "⏱️  $step_name 耗时: ${mins}分${secs}秒"
+    else
+        echo "⏱️  $step_name 耗时: ${secs}秒"
+    fi
+}
+
+# 打印总耗时
+total_time() {
+    local total_end_time=$(date +%s)
+    local duration=$((total_end_time - SCRIPT_START_TIME))
+    local mins=$((duration / 60))
+    local secs=$((duration % 60))
+    echo "══════════════════════════════════════════════════"
+    echo "📋 总耗时: ${mins}分${secs}秒"
+    echo "══════════════════════════════════════════════════"
+}
+
+# 确保脚本退出时打印总耗时
+trap total_time EXIT
+# ====================================
+
 # 添加 snap 路径到 PATH
 export PATH="/snap/bin:$PATH"
 
 # 设置系统主机名
+step_start
 if [ -n "$HOSTNAME" ]; then
     echo "设置主机名: $HOSTNAME"
     sudo hostnamectl set-hostname "$HOSTNAME"
@@ -11,6 +49,7 @@ if [ -n "$HOSTNAME" ]; then
     sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$HOSTNAME/" /etc/hosts 2>/dev/null || true
     echo "✓ 主机名已设置为: $(hostname)"
 fi
+step_end "设置主机名"
 
 # 确保 ~/.local/bin 在 PATH 中
 export PATH="$HOME/.local/bin:$PATH"
@@ -18,9 +57,12 @@ export PATH="$HOME/.local/bin:$PATH"
 echo "正在安装 ttyd、Cloudflared、Tailscale..."
 
 # 安装 ttyd（snap 依赖）
+step_start
+echo ">>> [1/3] 安装 ttyd (apt update + snapd + tmux + ttyd)"
 sudo apt update -y
 sudo apt install snapd tmux -y
 sudo snap install ttyd --classic
+step_end "安装 ttyd"
 
 # 验证 ttyd 是否可用
 if ! command -v ttyd &> /dev/null; then
@@ -40,14 +82,19 @@ fi
 echo "安装 Cloudflared、Tailscale..."
 
 # 安装 Tailscale
+step_start
+echo ">>> [2/3] 安装 Tailscale"
 if command -v tailscale &> /dev/null; then
     echo "✓ tailscale 已存在，跳过安装"
 else
     echo "安装 Tailscale..."
     curl -fsSL https://tailscale.com/install.sh | sh
 fi
+step_end "安装 Tailscale"
 
 # 安装 Cloudflared
+step_start
+echo ">>> [3/3] 安装 Cloudflared"
 if command -v cloudflared &> /dev/null; then
     echo "✓ cloudflared 已存在，跳过安装"
 else
@@ -61,6 +108,7 @@ else
     chmod +x cloudflared
     sudo mv cloudflared /usr/local/bin/
 fi
+step_end "安装 Cloudflared"
 
 # 检查安装结果
 echo "检查安装结果..."
@@ -83,6 +131,8 @@ pkill -f ttyd 2>/dev/null || true
 pkill -f cloudflared 2>/dev/null || true
 
 # 连接 Tailscale（手动登录）
+step_start
+echo ">>> 启动 Tailscale"
 if ! command -v tailscale &> /dev/null; then
     echo "⚠ Tailscale 未安装，跳过"
 else
@@ -154,9 +204,11 @@ else
         ) &
     fi
 fi
+step_end "启动 Tailscale"
 
 # 启动 ttyd（关键：-W 允许写入，直接运行 bash）
-echo "启动 ttyd..."
+step_start
+echo ">>> 启动 ttyd"
 if [ -z "$TTYD_CMD" ]; then
     echo "✗ ttyd 未安装，跳过"
     exit 1
@@ -184,8 +236,11 @@ else
     echo "✗ ttyd 未监听端口 7681"
     exit 1
 fi
+step_end "启动 ttyd"
 
 # 启动 Cloudflared 隧道
+step_start
+echo ">>> 启动 Cloudflared 隧道"
 if [ -n "$CF_TUNNEL_TOKEN" ]; then
     echo "使用 Cloudflare 固定隧道..."
     # 固定隧道需要在 Cloudflare 控制台配置路由：
@@ -214,6 +269,7 @@ fi
 # 等待隧道建立
 echo "等待隧道建立..."
 sleep 10
+step_end "启动 Cloudflared 隧道"
 
 # 获取 URL（仅临时隧道需要）
 if [ -z "$CF_TUNNEL_TOKEN" ]; then
@@ -276,6 +332,7 @@ else
 fi
 
 # 可选：执行自定义启动脚本
+step_start
 CUSTOM_START="/root/mydata/start.sh"
 if sudo test -f "$CUSTOM_START" 2>/dev/null; then
     echo ""
@@ -286,3 +343,4 @@ if sudo test -f "$CUSTOM_START" 2>/dev/null; then
         sudo -E bash "$CUSTOM_START" || echo "⚠ 自定义启动脚本执行失败: $CUSTOM_START"
     fi
 fi
+step_end "自定义启动脚本"
