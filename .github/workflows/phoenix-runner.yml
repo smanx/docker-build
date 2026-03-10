@@ -22,6 +22,7 @@ on:
         options:
           - run
           - stop
+          - restart
       duration:
         description: '保活时长（分钟）'
         required: false
@@ -36,7 +37,7 @@ on:
 jobs:
   # 发送停止信号
   stop:
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'stop'
+    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'stop' || inputs.action == 'restart')
     runs-on: ubuntu-latest
     steps:
       - name: 发送停止信号
@@ -44,6 +45,7 @@ jobs:
           TOKEN="${{ env.HF_TOKEN }}"
           USERNAME="${{ env.HF_USERNAME }}"
           DATASET="${{ env.HF_DATASET }}"
+          ACTION="${{ inputs.action }}"
 
           if [ -z "$TOKEN" ]; then
             echo "错误：HF_TOKEN 未设置"
@@ -96,7 +98,11 @@ jobs:
           fi
 
           # 创建停止信号文件
-          echo '{"stop": true, "timestamp": "'$(date -Iseconds)'"}' > stop.json
+          RESTART=false
+          if [ "$ACTION" = "restart" ]; then
+            RESTART=true
+          fi
+          echo '{"stop": true, "restart": '"$RESTART"', "timestamp": "'$(date -Iseconds)'"}' > stop.json
 
           # 提交并推送
           git add stop.json
@@ -108,7 +114,7 @@ jobs:
 
   # 正常运行
   run:
-    if: github.event_name != 'workflow_dispatch' || inputs.action != 'stop'
+    if: github.event_name != 'workflow_dispatch' || (inputs.action != 'stop' && inputs.action != 'restart')
     runs-on: ubuntu-latest
     timeout-minutes: 360  # 6小时最大限制
 
@@ -398,19 +404,25 @@ jobs:
                 if [ -n "$STOP_FILE" ]; then
                   STOP_VALUE=$(echo "$STOP_FILE" | grep -o '"stop"[[:space:]]*:[[:space:]]*[a-z]*' | head -1 | cut -d':' -f2 | tr -d ' ')
                   if [ "$STOP_VALUE" = "true" ]; then
+                    RESTART_VALUE=$(echo "$STOP_FILE" | grep -o '"restart"[[:space:]]*:[[:space:]]*[a-z]*' | head -1 | cut -d':' -f2 | tr -d ' ')
                     echo ""
                     echo "============================================="
                     echo "🛑 收到停止信号，执行备份..."
                     echo "============================================="
                     # 设置环境变量，跳过后续重启
                     echo "STOP_REQUESTED=true" >> $GITHUB_ENV
-                    
+
+                    # restart 模式：停止后仍会触发下一次运行
+                    if [ "$RESTART_VALUE" = "true" ]; then
+                      echo "RESTART_REQUESTED=true" >> $GITHUB_ENV
+                    fi
+                     
                     # 后台异步重置停止信号（防止下次运行时立即停止）
                     (
                       pip install huggingface_hub -q 2>/dev/null
-                      python3 -c "from huggingface_hub import HfApi; import os, json; api=HfApi(); api.upload_file(path_or_fileobj=json.dumps({'stop':False,'timestamp':'','reset_by':'loop'}).encode(),path_in_repo='stop.json',repo_id=os.environ.get('HF_DATASET'),repo_type='dataset',token=os.environ.get('HF_TOKEN')); print('✅ 停止信号已重置')" 2>/dev/null
+                      python3 -c "from huggingface_hub import HfApi; import os, json; api=HfApi(); api.upload_file(path_or_fileobj=json.dumps({'stop':False,'restart':False,'timestamp':'','reset_by':'loop'}).encode(),path_in_repo='stop.json',repo_id=os.environ.get('HF_DATASET'),repo_type='dataset',token=os.environ.get('HF_TOKEN')); print('✅ 停止信号已重置')" 2>/dev/null
                     ) &
-                    
+                     
                     break 2
                   fi
                 fi
@@ -573,7 +585,7 @@ jobs:
           )
 
           # 上传停止信号
-          stop_data = json.dumps({"stop": False, "timestamp": ""})
+          stop_data = json.dumps({"stop": False, "restart": False, "timestamp": ""})
           api.upload_file(
               path_or_fileobj=stop_data.encode(),
               path_in_repo="stop.json",
@@ -606,13 +618,18 @@ jobs:
       # 自动触发下一次循环
       # =============================================
       - name: 重启任务
-        if: env.STOP_REQUESTED != 'true'
+        if: env.STOP_REQUESTED != 'true' || env.RESTART_REQUESTED == 'true'
         uses: peter-evans/repository-dispatch@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           event-type: run-next
 
       - name: 停止完成
-        if: env.STOP_REQUESTED == 'true'
+        if: env.STOP_REQUESTED == 'true' && env.RESTART_REQUESTED != 'true'
         run: |
           echo "✅ 已按要求停止，不再重启"
+
+      - name: 重启完成
+        if: env.RESTART_REQUESTED == 'true'
+        run: |
+          echo "✅ 已按要求重启：完成备份并触发下一次运行"
