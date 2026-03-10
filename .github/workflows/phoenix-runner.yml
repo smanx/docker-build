@@ -212,11 +212,33 @@ jobs:
             echo "正在同步文件到目标目录..."
             # 按配置的完整路径逐条同步，便于日志可读、避免只看到 /root、/var。
             # 只覆盖存在的文件，不使用 --delete。
-            # 排除 start-loop.sh，避免覆盖自定义配置；排除 Node.js 相关文件，避免覆盖系统预装版本。
             SYNC_ERRORS=0
             if [ -n "$EXPECTED_DIRS" ]; then
               # 允许逗号/换行分隔
               EXPECTED_LIST=$(printf '%s' "$EXPECTED_DIRS" | tr ',\n' '  ')
+
+              # 后台异步计算各目录大小（与 rsync 并行）
+              SIZE_FILE=$(mktemp)
+              (
+                for p in $EXPECTED_LIST; do
+                  [ -z "$p" ] && continue
+                  REL_PATH="${p#/}"
+                  SRC_PATH="$RESTORE_TMP/$REL_PATH"
+                  if sudo test -d "$SRC_PATH" 2>/dev/null; then
+                    SZ=$(sudo du -sm "$SRC_PATH" 2>/dev/null | cut -f1)
+                    echo "$p:$SZ" >> "$SIZE_FILE"
+                  elif sudo test -f "$SRC_PATH" 2>/dev/null; then
+                    SZ=$(sudo du -m "$SRC_PATH" 2>/dev/null | cut -f1)
+                    echo "$p:$SZ" >> "$SIZE_FILE"
+                  else
+                    echo "$p:N/A" >> "$SIZE_FILE"
+                  fi
+                done
+                echo "done" >> "$SIZE_FILE"
+              ) &
+              SIZE_PID=$!
+
+              # 同步文件
               for p in $EXPECTED_LIST; do
                 [ -z "$p" ] && continue
 
@@ -231,60 +253,32 @@ jobs:
                 elif sudo test -f "$SRC_PATH" 2>/dev/null; then
                   echo "  同步: $DEST_PATH"
                   sudo mkdir -p "$(dirname "$DEST_PATH")" 2>/dev/null || true
-                  sudo rsync -a "$SRC_PATH" "$DEST_PATH/" 2>&1 || SYNC_ERRORS=$((SYNC_ERRORS + 1))
+                  sudo rsync -a "$SRC_PATH" "$DEST_PATH" 2>&1 || SYNC_ERRORS=$((SYNC_ERRORS + 1))
                 else
                   echo "  跳过: $DEST_PATH (备份中不存在)"
                 fi
               done
+
+              # 等待大小计算完成
+              wait $SIZE_PID 2>/dev/null || true
             else
               echo "  (未配置备份清单，跳过逐条同步)"
             fi
 
             echo ""
             echo "============================================="
-            echo "📋 恢复明细对比（备份源 vs 恢复目标）"
+            echo "📋 恢复明细"
             echo "============================================="
 
-            if [ -n "$EXPECTED_DIRS" ]; then
-              # 允许逗号/换行分隔
-              EXPECTED_LIST=$(printf '%s' "$EXPECTED_DIRS" | tr ',\n' '  ')
+            if [ -n "$EXPECTED_DIRS" ] && [ -f "$SIZE_FILE" ]; then
+              echo "路径                      | 大小"
+              echo "-------------------------|--------"
 
-              echo "路径                    | 备份源(临时目录) | 恢复后(目标目录)"
-              echo "-----------------------|-----------------|----------------"
-
-              for p in $EXPECTED_LIST; do
-                REL_PATH="${p#/}"
-                SRC_PATH="$RESTORE_TMP/$REL_PATH"
-
-                # 备份源大小（临时目录中）
-                if sudo test -d "$SRC_PATH" 2>/dev/null; then
-                  SRC_SZ=$(sudo du -sm "$SRC_PATH" 2>/dev/null | cut -f1)
-                  SRC_TYPE="dir"
-                elif sudo test -f "$SRC_PATH" 2>/dev/null; then
-                  SRC_SZ=$(sudo du -m "$SRC_PATH" 2>/dev/null | cut -f1)
-                  SRC_TYPE="file"
-                else
-                  SRC_SZ="N/A"
-                  SRC_TYPE="none"
-                fi
-
-                # 恢复后大小（目标目录）
-                if sudo test -d "$p" 2>/dev/null; then
-                  DEST_SZ=$(sudo du -sm "$p" 2>/dev/null | cut -f1)
-                elif sudo test -f "$p" 2>/dev/null; then
-                  DEST_SZ=$(sudo du -m "$p" 2>/dev/null | cut -f1)
-                else
-                  DEST_SZ="N/A"
-                fi
-
-                # 格式化输出
-                printf "%-22s | %7s MB       | %7s MB\n" "$p" "$SRC_SZ" "$DEST_SZ"
-
-                # 如果大小不一致，标记警告
-                if [ "$SRC_SZ" != "N/A" ] && [ "$DEST_SZ" != "N/A" ] && [ "$SRC_SZ" != "$DEST_SZ" ]; then
-                  echo "  ⚠️  大小不一致！可能存在同步问题"
-                fi
-              done
+              while IFS=: read -r p sz; do
+                if [ "$p" = "done" ]; then break; fi
+                printf "%-24s | %4s MB\n" "$p" "$sz"
+              done < "$SIZE_FILE"
+              rm -f "$SIZE_FILE"
             else
               echo "(未配置 backup_dirs 或 ${BACKUP_DIRS_FILE}，跳过明细输出)"
             fi
