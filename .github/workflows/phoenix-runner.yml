@@ -227,29 +227,11 @@ jobs:
                 if sudo test -d "$SRC_PATH" 2>/dev/null; then
                   echo "  同步: $DEST_PATH"
                   sudo mkdir -p "$DEST_PATH" 2>/dev/null || true
-                  sudo rsync -a \
-                    --exclude='start-loop.sh' \
-                    --exclude='node' \
-                    --exclude='nodejs' \
-                    --exclude='npm' \
-                    --exclude='npx' \
-                    --exclude='corepack' \
-                    --exclude='yarn' \
-                    --exclude='pnpm' \
-                    "$SRC_PATH/" "$DEST_PATH/" 2>&1 || SYNC_ERRORS=$((SYNC_ERRORS + 1))
+                  sudo rsync -a "$SRC_PATH/" "$DEST_PATH/" 2>&1 || SYNC_ERRORS=$((SYNC_ERRORS + 1))
                 elif sudo test -f "$SRC_PATH" 2>/dev/null; then
                   echo "  同步: $DEST_PATH"
                   sudo mkdir -p "$(dirname "$DEST_PATH")" 2>/dev/null || true
-                  sudo rsync -a \
-                    --exclude='start-loop.sh' \
-                    --exclude='node' \
-                    --exclude='nodejs' \
-                    --exclude='npm' \
-                    --exclude='npx' \
-                    --exclude='corepack' \
-                    --exclude='yarn' \
-                    --exclude='pnpm' \
-                    "$SRC_PATH" "$DEST_PATH" 2>&1 || SYNC_ERRORS=$((SYNC_ERRORS + 1))
+                  sudo rsync -a "$SRC_PATH" "$DEST_PATH/" 2>&1 || SYNC_ERRORS=$((SYNC_ERRORS + 1))
                 else
                   echo "  跳过: $DEST_PATH (备份中不存在)"
                 fi
@@ -260,22 +242,47 @@ jobs:
 
             echo ""
             echo "============================================="
-            echo "📋 恢复明细（完整路径与大小）"
+            echo "📋 恢复明细对比（备份源 vs 恢复目标）"
             echo "============================================="
 
             if [ -n "$EXPECTED_DIRS" ]; then
               # 允许逗号/换行分隔
               EXPECTED_LIST=$(printf '%s' "$EXPECTED_DIRS" | tr ',\n' '  ')
 
+              echo "路径                    | 备份源(临时目录) | 恢复后(目标目录)"
+              echo "-----------------------|-----------------|----------------"
+
               for p in $EXPECTED_LIST; do
-                if sudo test -d "$p" 2>/dev/null; then
-                  SZ=$(sudo du -sm "$p" 2>/dev/null | cut -f1)
-                  echo "✓ $p  (dir: ${SZ} MB)"
-                elif sudo test -f "$p" 2>/dev/null; then
-                  SZ=$(sudo du -m "$p" 2>/dev/null | cut -f1)
-                  echo "✓ $p  (file: ${SZ} MB)"
+                REL_PATH="${p#/}"
+                SRC_PATH="$RESTORE_TMP/$REL_PATH"
+
+                # 备份源大小（临时目录中）
+                if sudo test -d "$SRC_PATH" 2>/dev/null; then
+                  SRC_SZ=$(sudo du -sm "$SRC_PATH" 2>/dev/null | cut -f1)
+                  SRC_TYPE="dir"
+                elif sudo test -f "$SRC_PATH" 2>/dev/null; then
+                  SRC_SZ=$(sudo du -m "$SRC_PATH" 2>/dev/null | cut -f1)
+                  SRC_TYPE="file"
                 else
-                  echo "✗ $p  (未找到/无权限)"
+                  SRC_SZ="N/A"
+                  SRC_TYPE="none"
+                fi
+
+                # 恢复后大小（目标目录）
+                if sudo test -d "$p" 2>/dev/null; then
+                  DEST_SZ=$(sudo du -sm "$p" 2>/dev/null | cut -f1)
+                elif sudo test -f "$p" 2>/dev/null; then
+                  DEST_SZ=$(sudo du -m "$p" 2>/dev/null | cut -f1)
+                else
+                  DEST_SZ="N/A"
+                fi
+
+                # 格式化输出
+                printf "%-22s | %7s MB       | %7s MB\n" "$p" "$SRC_SZ" "$DEST_SZ"
+
+                # 如果大小不一致，标记警告
+                if [ "$SRC_SZ" != "N/A" ] && [ "$DEST_SZ" != "N/A" ] && [ "$SRC_SZ" != "$DEST_SZ" ]; then
+                  echo "  ⚠️  大小不一致！可能存在同步问题"
                 fi
               done
             else
