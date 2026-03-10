@@ -3,3 +3,4 @@
 /var/lib/tailscale
 /root/.bashrc
 /root/.local
+/etc/skel/.nvm/versions/node
