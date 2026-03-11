@@ -621,14 +621,14 @@ jobs:
       # =============================================
       - name: 重启任务
         # 确保即使前面打包/上传失败也能触发下一次（尤其是 restart 模式）
-        if: always() && (env.STOP_REQUESTED != 'true' || env.RESTART_REQUESTED == 'true')
+        if: always() && (env.RESTART_REQUESTED == 'true')
         uses: peter-evans/repository-dispatch@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           event-type: run-next
 
       - name: 等待下次运行
-        if: always() && (env.STOP_REQUESTED != 'true' || env.RESTART_REQUESTED == 'true')
+        if: always() && (env.RESTART_REQUESTED == 'true')
         run: |
           WAIT_SECONDS=${{ env.WAIT_BEFORE_NEXT || '60' }}
           echo "⏳ 等待 ${WAIT_SECONDS} 秒后开始下次运行..."
