@@ -5,3 +5,4 @@
 /root/.profile
 /root/.local
 /root/mydata
+/var/lib/docker

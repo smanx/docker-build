@@ -209,7 +209,12 @@ jobs:
             
             echo "✓ 解压完成"
             echo ""
-            
+
+            # 停止 Docker 服务
+            echo "停止 Docker 服务..."
+            sudo systemctl stop docker 2>/dev/null || true
+            sudo systemctl stop docker.socket 2>/dev/null || true
+
             echo "正在同步文件到目标目录..."
             # 按配置的完整路径逐条同步，便于日志可读、避免只看到 /root、/var。
             # 只覆盖存在的文件，不使用 --delete。
@@ -265,6 +270,10 @@ jobs:
             else
               echo "  (未配置备份清单，跳过逐条同步)"
             fi
+
+            # 启动 Docker 服务
+            echo "启动 Docker 服务..."
+            sudo systemctl start docker 2>/dev/null || true
 
             echo ""
             echo "============================================="
@@ -477,6 +486,12 @@ jobs:
           echo "============================================="
           echo "📦 开始打包加密..."
           echo "============================================="
+
+          # 停止 Docker 服务
+          echo "停止 Docker 服务..."
+          sudo systemctl stop docker 2>/dev/null || true
+          sudo systemctl stop docker.socket 2>/dev/null || true
+
           PACK_START=$(date +%s)
 
           # 使用 sudo 以读取所有文件，保留权限 (-p)，pigz 多线程压缩，然后加密
