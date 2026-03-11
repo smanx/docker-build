@@ -4,6 +4,11 @@ echo "[start.sh] 启动开始"
 echo "[start.sh] 当前目录: $(pwd)"
 echo "[start.sh] 当前用户: $(id -un) (uid=$(id -u))"
 
+echo "0=$0"
+echo "PID=$$ PPID=$PPID"
+echo "SHELL环境变量=$SHELL"
+ps -p $$ -o pid=,ppid=,comm=,args=
+
 echo "正在安装 ttyd、code-server 和 Cloudflared..."
 
 # 安装 ttyd

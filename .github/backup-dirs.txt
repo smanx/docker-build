@@ -2,5 +2,6 @@
 /root/.openclaw
 /var/lib/tailscale
 /root/.bashrc
+/root/.profile
 /root/.local
 /root/mydata

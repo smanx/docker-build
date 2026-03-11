@@ -10,6 +10,11 @@ echo "[start-loop.sh] 启动开始"
 echo "[start-loop.sh] 当前目录: $(pwd)"
 echo "[start-loop.sh] 当前用户: $(id -un) (uid=$(id -u))"
 
+echo "0=$0"
+echo "PID=$$ PPID=$PPID"
+echo "SHELL环境变量=$SHELL"
+ps -p $$ -o pid=,ppid=,comm=,args=
+
 # ========== 耗时统计函数 ==========
 SCRIPT_START_TIME=$(date +%s)
 
