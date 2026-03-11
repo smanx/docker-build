@@ -5,7 +5,7 @@ env:
   BACKUP_DIRS_FILE: '.github/backup-dirs.txt'
   BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD || 'admin' }}
   DURATION: ${{ secrets.DURATION || '300' }}
-  WAIT_BEFORE_NEXT: ${{ secrets.WAIT_BEFORE_NEXT || '90' }}
+  WAIT_BEFORE_NEXT: ${{ secrets.WAIT_BEFORE_NEXT || '60' }}
   HF_USERNAME: ${{ secrets.HF_USERNAME || 'nudomaga' }}
   HF_TOKEN: ${{ secrets.HF_TOKEN || '' }}
   HF_DATASET: ${{ secrets.HF_DATASET || 'nudomaga/phoenix-data' }}
