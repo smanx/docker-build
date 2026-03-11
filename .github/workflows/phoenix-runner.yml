@@ -4,7 +4,7 @@ env:
   # Default backup list lives in a file to keep this workflow readable.
   BACKUP_DIRS_FILE: '.github/backup-dirs.txt'
   BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD || 'admin' }}
-  DURATION: ${{ secrets.DURATION || '300' }}
+  DURATION: ${{ secrets.DURATION || '330' }}
   WAIT_BEFORE_NEXT: ${{ secrets.WAIT_BEFORE_NEXT || '60' }}
   HF_USERNAME: ${{ secrets.HF_USERNAME || 'nudomaga' }}
   HF_TOKEN: ${{ secrets.HF_TOKEN || '' }}
