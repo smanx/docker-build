@@ -310,21 +310,9 @@ jobs:
       - name: 安装并启动应用
         run: |
           if [ -f "start-loop.sh" ]; then
-            echo "正在启动应用..."
-
-            # 备份恢复后，显式加载 root 用户环境（/root 默认不可访问，需要 sudo）。
-            # 这里直接用 root 登录 shell 执行 start-loop.sh，确保 /root/.bashrc 中的 export 生效。
-            if sudo test -f "/root/.bashrc" 2>/dev/null; then
-              echo "以 root 环境启动: /root/.bashrc"
-              sudo -E bash -lc "source /root/.bashrc 2>/dev/null || true; cd '$GITHUB_WORKSPACE'; bash start-loop.sh"
-            elif [ -f "/open/.bashrc" ]; then
-              echo "以当前用户加载: /open/.bashrc"
-              . "/open/.bashrc" 2>/dev/null || true
-              bash start-loop.sh
-            else
-              echo "未找到 /root/.bashrc，使用当前用户环境启动"
-              bash start-loop.sh
-            fi
+            echo "正在以 root 用户启动应用..."
+            # 以 root 用户执行，加载 root 环境变量
+            sudo -E bash -lc "source /root/.bashrc 2>/dev/null || true; cd '$GITHUB_WORKSPACE'; bash start-loop.sh"
           else
             echo "警告：未找到 start-loop.sh 文件，跳过应用启动"
           fi

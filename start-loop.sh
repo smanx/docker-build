@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# 确保以 root 用户运行
+if [ "$(id -u)" -ne 0 ]; then
+    echo "请以 root 用户运行此脚本"
+    exec sudo -E bash "$0" "$@"
+fi
+
 # ========== 耗时统计函数 ==========
 SCRIPT_START_TIME=$(date +%s)
 
@@ -358,13 +364,13 @@ fi
 # 可选：执行自定义启动脚本
 step_start
 CUSTOM_START="/root/mydata/start.sh"
-if sudo test -f "$CUSTOM_START" 2>/dev/null; then
+if [ -f "$CUSTOM_START" ]; then
     echo ""
     echo "检测到自定义启动脚本: $CUSTOM_START"
-    if sudo test -x "$CUSTOM_START" 2>/dev/null; then
-        sudo -E "$CUSTOM_START" || echo "⚠ 自定义启动脚本执行失败: $CUSTOM_START"
+    if [ -x "$CUSTOM_START" ]; then
+        "$CUSTOM_START" || echo "⚠ 自定义启动脚本执行失败: $CUSTOM_START"
     else
-        sudo -E bash "$CUSTOM_START" || echo "⚠ 自定义启动脚本执行失败: $CUSTOM_START"
+        bash "$CUSTOM_START" || echo "⚠ 自定义启动脚本执行失败: $CUSTOM_START"
     fi
 fi
 step_end "自定义启动脚本"
