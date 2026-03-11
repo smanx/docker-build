@@ -6,6 +6,10 @@ if [ "$(id -u)" -ne 0 ]; then
     exec sudo -E bash "$0" "$@"
 fi
 
+echo "[start-loop.sh] 启动开始"
+echo "[start-loop.sh] 当前目录: $(pwd)"
+echo "[start-loop.sh] 当前用户: $(id -un) (uid=$(id -u))"
+
 # ========== 耗时统计函数 ==========
 SCRIPT_START_TIME=$(date +%s)
 

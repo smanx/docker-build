@@ -1,5 +1,9 @@
 #!/bin/bash
 
+echo "[start.sh] 启动开始"
+echo "[start.sh] 当前目录: $(pwd)"
+echo "[start.sh] 当前用户: $(id -un) (uid=$(id -u))"
+
 echo "正在安装 ttyd、code-server 和 Cloudflared..."
 
 # 安装 ttyd
