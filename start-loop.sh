@@ -15,6 +15,8 @@ echo "PID=$$ PPID=$PPID"
 echo "SHELL环境变量=$SHELL"
 ps -p $$ -o pid=,ppid=,comm=,args=
 
+. /root/.bashrc
+
 # ========== 耗时统计函数 ==========
 SCRIPT_START_TIME=$(date +%s)
 
