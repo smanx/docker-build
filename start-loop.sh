@@ -58,6 +58,11 @@ trap total_time EXIT
 # 添加 snap 路径到 PATH
 export PATH="/snap/bin:$PATH"
 
+# ========== ttyd Basic Auth (写死) ==========
+TTYD_USER="admin"
+TTYD_PASS="zc123456"
+# ==========================================
+
 # 设置系统主机名
 step_start
 if [ -n "$HOSTNAME" ]; then
@@ -245,14 +250,14 @@ else
 fi
 step_end "启动 Tailscale"
 
-# 启动 ttyd（关键：-W 允许写入，直接运行 bash）
+# 启动 ttyd（关键：-W 允许写入，直接运行 bash；-c 开启 Basic Auth）
 step_start
 echo ">>> 启动 ttyd"
 if [ -z "$TTYD_CMD" ]; then
     echo "✗ ttyd 未安装，跳过"
     exit 1
 fi
-$TTYD_CMD -p 7681 -W bash &
+$TTYD_CMD -p 7681 -W -c "$TTYD_USER:$TTYD_PASS" bash &
 TTYD_PID=$!
 
 # 等待端口就绪（最多 5 秒）
@@ -269,7 +274,7 @@ if ps -p $TTYD_PID > /dev/null; then
     echo "✓ ttyd 启动成功 (PID: $TTYD_PID)"
 else
     echo "✗ ttyd 启动失败，尝试重新启动..."
-    $TTYD_CMD -p 7681 -W bash &
+    $TTYD_CMD -p 7681 -W -c "$TTYD_USER:$TTYD_PASS" bash &
     TTYD_PID=$!
 fi
 
