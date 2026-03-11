@@ -5,6 +5,7 @@ env:
   BACKUP_DIRS_FILE: '.github/backup-dirs.txt'
   BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD || 'admin' }}
   DURATION: ${{ secrets.DURATION || '300' }}
+  WAIT_BEFORE_NEXT: ${{ secrets.WAIT_BEFORE_NEXT || '60' }}
   HF_USERNAME: ${{ secrets.HF_USERNAME || 'nudomaga' }}
   HF_TOKEN: ${{ secrets.HF_TOKEN || '' }}
   HF_DATASET: ${{ secrets.HF_DATASET || 'nudomaga/phoenix-data' }}
@@ -607,6 +608,14 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           event-type: run-next
+
+      - name: 等待下次运行
+        if: always() && (env.STOP_REQUESTED != 'true' || env.RESTART_REQUESTED == 'true')
+        run: |
+          WAIT_SECONDS=${{ env.WAIT_BEFORE_NEXT || '60' }}
+          echo "⏳ 等待 ${WAIT_SECONDS} 秒后开始下次运行..."
+          sleep $WAIT_SECONDS
+          echo "✅ 等待完成"
 
       - name: 停止完成
         if: always() && env.STOP_REQUESTED == 'true' && env.RESTART_REQUESTED != 'true'
