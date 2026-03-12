@@ -351,14 +351,16 @@ jobs:
             CURRENT_TIME=$(date +%s)
             ELAPSED=$((CURRENT_TIME - START_TIME))
 
-            if [ $ELAPSED -ge $DURATION_SECONDS ]; then
-              echo "============================================="
-              echo "⏰ 已达到设置的运行时长"
-              echo "============================================="
-              echo "运行了 ${DURATION_MINUTES} 分钟，现在退出"
-              echo ""
-              break
-            fi
+           if [ $ELAPSED -ge $DURATION_SECONDS ]; then
+             echo "============================================="
+             echo "⏰ 已达到设置的运行时长"
+             echo "============================================="
+             echo "运行了 ${DURATION_MINUTES} 分钟，现在退出"
+             echo ""
+             # DURATION 到点后：继续执行备份/上传，并触发下一次运行。
+             echo "RESTART_REQUESTED=true" >> $GITHUB_ENV
+             break
+           fi
 
             ELAPSED_HOURS=$((ELAPSED / 3600))
             ELAPSED_MINS=$(((ELAPSED % 3600) / 60))
@@ -620,7 +622,7 @@ jobs:
       # 自动触发下一次循环
       # =============================================
       - name: 重启任务
-        # 确保即使前面打包/上传失败也能触发下一次（尤其是 restart 模式）
+        # 确保即使前面打包/上传失败也能触发下一次（尤其是 restart/自动续跑 模式）
         if: always() && (env.RESTART_REQUESTED == 'true')
         uses: peter-evans/repository-dispatch@v2
         with:
@@ -641,6 +643,6 @@ jobs:
           echo "✅ 已按要求停止，不再重启"
 
       - name: 重启完成
-        if: always() && env.RESTART_REQUESTED == 'true'
+        if: always() && (env.RESTART_REQUESTED == 'true')
         run: |
           echo "✅ 已按要求重启：完成备份并触发下一次运行"
