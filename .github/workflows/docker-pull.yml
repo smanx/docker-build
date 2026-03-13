@@ -2,7 +2,7 @@ name: Docker Multi Pull
 
 env:
   # Fixed timing knobs for the pull loop
-  PULL_INTERVAL_SECONDS: "360"   # 6 minutes
+  PULL_INTERVAL_SECONDS: "5"
   MAX_RUNTIME_SECONDS: "18000"   # 5 hours
 
 on:
