@@ -32,8 +32,9 @@ jobs:
         name: Generate job matrix
         shell: bash
         env:
-          # Load from GitHub Variables (vars), expose as step env for Python.
-          DOCKER_ACCOUNTS: ${{ vars.DOCKER_ACCOUNTS }}
+          # Prefer GitHub Variables (vars). Fall back to Secrets if configured there.
+          # Note: credentials should generally be stored in Secrets, not Variables.
+          DOCKER_ACCOUNTS: ${{ vars.DOCKER_ACCOUNTS || secrets.DOCKER_ACCOUNTS }}
         run: |
           set -euo pipefail
 
@@ -42,8 +43,14 @@ jobs:
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
           import os
+          import sys
 
           raw = (os.getenv("DOCKER_ACCOUNTS") or "").strip()
+
+          # Debug without leaking credentials
+          print(f"DOCKER_ACCOUNTS provided: {bool(raw)}", file=sys.stderr)
+          parts = [p.strip() for p in raw.split(",") if p.strip()] if raw else []
+          print(f"Accounts parsed: {len(parts)}", file=sys.stderr)
 
           # Always run some anonymous jobs in parallel.
           try:
@@ -59,8 +66,7 @@ jobs:
           ]
 
           # If accounts exist, add one job per account (in addition to anon jobs).
-          if raw:
-            parts = [p.strip() for p in raw.split(",") if p.strip()]
+          if parts:
             for idx, item in enumerate(parts, start=1):
               # Format: user:pass@registry
               if "@" in item:
