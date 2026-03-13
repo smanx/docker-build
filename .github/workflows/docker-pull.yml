@@ -5,6 +5,14 @@ env:
   PULL_INTERVAL_SECONDS: "5"
   MAX_RUNTIME_SECONDS: "18000"   # 5 hours
 
+  # Anonymous parallel jobs to run (kept even when accounts exist)
+  ANON_PARALLELISM: "4"
+
+  # Optional: comma-separated accounts in the form user:pass@registry
+  # Example: user1:pass1@docker.io,user2:pass2@ghcr.io
+  # Security note: prefer GitHub Secrets/Variables instead of hardcoding credentials.
+  DOCKER_ACCOUNTS: ""
+
 on:
   workflow_dispatch:
     inputs:
@@ -16,19 +24,98 @@ on:
     - cron: '0 */6 * * *'  # 每6小时运行一次
 
 jobs:
+  generate-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        name: Generate job matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # If DOCKER_ACCOUNTS is set, fan out one job per account.
+          # Otherwise keep the existing behavior: run 4 parallel anonymous jobs.
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+
+          raw = (os.getenv("DOCKER_ACCOUNTS") or "").strip()
+
+          # Always run some anonymous jobs in parallel.
+          try:
+            anon_n = int((os.getenv("ANON_PARALLELISM") or "4").strip() or "4")
+          except ValueError:
+            anon_n = 4
+          if anon_n < 0:
+            anon_n = 0
+
+          include = [
+            {"os": "ubuntu-latest", "label": f"anon-{i}"}
+            for i in range(1, anon_n + 1)
+          ]
+
+          # If accounts exist, add one job per account (in addition to anon jobs).
+          if raw:
+            parts = [p.strip() for p in raw.split(",") if p.strip()]
+            for idx, item in enumerate(parts, start=1):
+              # Format: user:pass@registry
+              if "@" in item:
+                userpass, registry = item.split("@", 1)
+              else:
+                userpass, registry = item, "docker.io"
+
+              if ":" in userpass:
+                username, password = userpass.split(":", 1)
+              else:
+                username, password = userpass, ""
+
+              include.append({
+                "os": "ubuntu-latest",
+                "label": f"acct-{idx}",
+                "username": username,
+                "password": password,
+                "registry": registry,
+              })
+
+          matrix = {"include": include}
+          print("matrix=" + json.dumps(matrix))
+          PY
+
   pull-images:
+    needs: generate-matrix
     strategy:
-      matrix:
-        os: [ubuntu-latest, ubuntu-latest, ubuntu-latest, ubuntu-latest]
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
+    name: Pull Images (${{ matrix.label }})
 
     steps:
       - name: Get External IP
         shell: bash
         run: |
           echo "External IP: $(curl -s ifconfig.me || curl -s ip.sb || curl -s ipinfo.io/ip)"
+
+      - name: Docker Login (optional)
+        if: ${{ matrix.username != '' && matrix.password != '' && matrix.registry != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Logging in to ${{ matrix.registry }} as ${{ matrix.username }}"
+
+          set +e
+          login_output=$(echo "${{ matrix.password }}" | docker login "${{ matrix.registry }}" -u "${{ matrix.username }}" --password-stdin 2>&1)
+          login_rc=$?
+          set -e
+
+          echo "$login_output"
+          if [ "$login_rc" -ne 0 ]; then
+            echo "Docker login failed (rc=$login_rc)"
+            exit "$login_rc"
+          fi
+          echo "Docker login succeeded"
 
       - name: Pull Docker Images
         shell: bash
