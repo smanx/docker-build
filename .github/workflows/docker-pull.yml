@@ -76,10 +76,8 @@ jobs:
               fi
 
               inspect_count=$((inspect_count + 1))
-              echo "[$inspect_count] Pulling: $image_name"
-              docker pull "$image_name"
-              echo "Removing: $image_name"
-              docker rmi "$image_name"
+              echo "[$inspect_count] Inspecting: $image_name"
+              docker manifest inspect "$image_name"
 
               # 每次调用后休眠 6 分钟（确保1小时运行10次）
               echo "休眠 ${interval} 秒后继续..."
