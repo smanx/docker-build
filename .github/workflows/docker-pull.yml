@@ -10,8 +10,7 @@ env:
 
   # Optional: comma-separated accounts in the form user:pass@registry
   # Example: user1:pass1@docker.io,user2:pass2@ghcr.io
-  # Security note: prefer GitHub Secrets/Variables instead of hardcoding credentials.
-  DOCKER_ACCOUNTS: ""
+  # Source: GitHub Variables (Actions -> Variables) -> DOCKER_ACCOUNTS
 
 on:
   workflow_dispatch:
@@ -32,6 +31,9 @@ jobs:
       - id: set-matrix
         name: Generate job matrix
         shell: bash
+        env:
+          # Load from GitHub Variables (vars), expose as step env for Python.
+          DOCKER_ACCOUNTS: ${{ vars.DOCKER_ACCOUNTS }}
         run: |
           set -euo pipefail
 
