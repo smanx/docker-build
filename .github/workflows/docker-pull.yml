@@ -8,8 +8,13 @@ env:
   # Anonymous parallel jobs to run (kept even when accounts exist)
   ANON_PARALLELISM: "4"
 
-  # Optional: comma-separated accounts in the form user:pass@registry
-  # Example: user1:pass1@docker.io,user2:pass2@ghcr.io
+  # Optional: comma-separated accounts.
+  # Formats:
+  # - Docker Hub (default): user:pass
+  # - Known registry:        user:pass@docker.io (or @ghcr.io)
+  # - Custom registry:       user:pass@@registry.example.com
+  # Notes:
+  # - Passwords may contain '@'. Use '@@' to disambiguate when specifying a custom registry.
   # Source: GitHub Variables (Actions -> Variables) -> DOCKER_ACCOUNTS
 
 on:
@@ -71,17 +76,42 @@ jobs:
 
           # If accounts exist, add one job per account (in addition to anon jobs).
           if parts:
+            ALLOWED_REGISTRIES = {
+              "docker.io",
+              "index.docker.io",
+              "ghcr.io",
+              "quay.io",
+              "gcr.io",
+              "registry.gitlab.com",
+              "mcr.microsoft.com",
+            }
+
             for idx, item in enumerate(parts, start=1):
-              # Format: user:pass@registry
-              if "@" in item:
-                userpass, registry = item.split("@", 1)
-              else:
-                userpass, registry = item, "docker.io"
+              # Account syntax:
+              # - user:pass                       -> docker.io
+              # - user:pass@docker.io             -> docker.io (explicit)
+              # - user:pass@ghcr.io               -> ghcr.io
+              # - user:pass@@registry.example.com -> custom registry
+              registry = "docker.io"
+              userpass = item
+
+              if "@@" in item:
+                # Explicit separator for custom registries; safe with '@' in passwords.
+                userpass, registry = item.rsplit("@@", 1)
+              elif "@" in item:
+                # Single '@' is only treated as registry separator for known registries.
+                left, right = item.rsplit("@", 1)
+                if right in ALLOWED_REGISTRIES:
+                  userpass, registry = left, right
 
               if ":" in userpass:
                 username, password = userpass.split(":", 1)
               else:
                 username, password = userpass, ""
+
+              username = username.strip()
+              password = password.strip()
+              registry = registry.strip() or "docker.io"
 
               include.append({
                 "os": "ubuntu-latest",
