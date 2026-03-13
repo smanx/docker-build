@@ -71,7 +71,7 @@ jobs:
           # 记录开始时间
           start_time=$(date +%s)
 
-          pull_count=0
+          inspect_count=0
           round=1
           while true; do
             # 检查运行时长
@@ -92,28 +92,28 @@ jobs:
                 continue
               fi
 
-              pull_count=$((pull_count + 1))
-              echo "[$pull_count] Pulling: $image_name"
+              inspect_count=$((inspect_count + 1))
+              echo "[$inspect_count] Inspecting: $image_name"
 
               set +e
-              pull_output=$(docker pull "$image_name" 2>&1)
-              pull_rc=$?
+              inspect_output=$(docker manifest inspect "$image_name" 2>&1)
+              inspect_rc=$?
               set -e
 
               # Detect rate limiting and stop the workflow early
-              if is_rate_limited "$pull_output"; then
-                echo "$pull_output"
+              if is_rate_limited "$inspect_output"; then
+                echo "$inspect_output"
                 echo "检测到限流/429，结束流程"
                 exit 0
               fi
 
-              if [ "$pull_rc" -ne 0 ]; then
-                echo "$pull_output"
-                echo "docker pull 失败 (rc=$pull_rc)，跳过并继续"
+              # Print inspect output for visibility/debugging
+              echo "$inspect_output"
+
+              if [ "$inspect_rc" -ne 0 ]; then
+                echo "docker manifest inspect 失败 (rc=$inspect_rc)，跳过并继续"
               else
-                echo "docker pull 成功"
-                # Avoid disk filling up on long runs
-                docker image rm -f "$image_name" >/dev/null 2>&1 || true
+                echo "docker manifest inspect 成功"
               fi
 
               echo "休眠 ${interval} 秒后继续..."
