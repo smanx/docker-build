@@ -237,7 +237,7 @@ jobs:
               fi
 
               # Print inspect output for visibility/debugging
-              echo "$inspect_output"
+              # echo "$inspect_output"
 
               if [ "$inspect_rc" -ne 0 ]; then
                 echo "docker manifest inspect 失败 (rc=$inspect_rc)，跳过并继续"
