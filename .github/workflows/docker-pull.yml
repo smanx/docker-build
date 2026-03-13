@@ -38,6 +38,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Safe debug: indicate whether vars/secrets are present (no values printed).
+          echo "vars.DOCKER_ACCOUNTS set? ${{ vars.DOCKER_ACCOUNTS != '' }}"
+          echo "secrets.DOCKER_ACCOUNTS set? ${{ secrets.DOCKER_ACCOUNTS != '' }}"
+
           # If DOCKER_ACCOUNTS is set, fan out one job per account.
           # Otherwise keep the existing behavior: run 4 parallel anonymous jobs.
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
