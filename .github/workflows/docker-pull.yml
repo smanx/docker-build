@@ -1,5 +1,10 @@
 name: Docker Multi Pull
 
+env:
+  # Fixed timing knobs for the pull loop
+  PULL_INTERVAL_SECONDS: "360"   # 6 minutes
+  MAX_RUNTIME_SECONDS: "18000"   # 5 hours
+
 on:
   workflow_dispatch:
     inputs:
@@ -28,6 +33,8 @@ jobs:
       - name: Pull Docker Images
         shell: bash
         run: |
+          set -euo pipefail
+
           # 设置默认值（schedule 触发时 inputs 为空）
           DOCKER_IMAGES="${{ inputs.docker_images }}"
 
@@ -40,30 +47,38 @@ jobs:
             exit 0
           fi
 
+          # 固定时间配置（从文件最前面的 env 读取）
+          interval="${PULL_INTERVAL_SECONDS:-360}"
+          max_runtime="${MAX_RUNTIME_SECONDS:-18000}"
+
           # 将逗号分隔的镜像列表转换为换行分隔
           echo "$DOCKER_IMAGES" | tr ',' '\n' | tr -d '\r' > images.txt
 
           # 统计镜像数量
           image_count=$(wc -l < images.txt)
-          interval=360  # 6分钟 = 360秒，确保1小时运行10次
-          max_runtime=18000  # 5小时 = 18000秒
 
           echo "镜像列表: $DOCKER_IMAGES"
           echo "镜像数量: $image_count"
-          echo "调用间隔: ${interval}秒 (6分钟)，即每小时10次"
-          echo "最大运行时长: ${max_runtime}秒 (5小时)"
+          echo "拉取间隔: ${interval}秒"
+          echo "最大运行时长: ${max_runtime}秒"
+
+          is_rate_limited() {
+            # Common registry rate-limit markers: Docker Hub / generic HTTP 429
+            # Keep it broad but specific enough to avoid false positives.
+            grep -Eqi '(toomanyrequests|too many requests|http( |-)code:? *429|status:? *429|rate[ -]?limit)' <<<"${1:-}"
+          }
 
           # 记录开始时间
           start_time=$(date +%s)
 
-          inspect_count=0
+          pull_count=0
           round=1
           while true; do
             # 检查运行时长
             current_time=$(date +%s)
             elapsed=$((current_time - start_time))
-            if [ $elapsed -ge $max_runtime ]; then
-              echo "已运行超过 5 小时，退出"
+            if [ "$elapsed" -ge "$max_runtime" ]; then
+              echo "已运行超过 ${max_runtime} 秒，退出"
               exit 0
             fi
 
@@ -71,17 +86,38 @@ jobs:
 
             # 读取文件并处理每一行
             while IFS= read -r image_name || [ -n "$image_name" ]; do
+              # Trim spaces
+              image_name="${image_name//[[:space:]]/}"
               if [ -z "$image_name" ]; then
                 continue
               fi
 
-              inspect_count=$((inspect_count + 1))
-              echo "[$inspect_count] Inspecting: $image_name"
-              docker manifest inspect "$image_name"
+              pull_count=$((pull_count + 1))
+              echo "[$pull_count] Pulling: $image_name"
 
-              # 每次调用后休眠 6 分钟（确保1小时运行10次）
+              set +e
+              pull_output=$(docker pull "$image_name" 2>&1)
+              pull_rc=$?
+              set -e
+
+              # Detect rate limiting and stop the workflow early
+              if is_rate_limited "$pull_output"; then
+                echo "$pull_output"
+                echo "检测到限流/429，结束流程"
+                exit 0
+              fi
+
+              if [ "$pull_rc" -ne 0 ]; then
+                echo "$pull_output"
+                echo "docker pull 失败 (rc=$pull_rc)，跳过并继续"
+              else
+                echo "docker pull 成功"
+                # Avoid disk filling up on long runs
+                docker image rm -f "$image_name" >/dev/null 2>&1 || true
+              fi
+
               echo "休眠 ${interval} 秒后继续..."
-              sleep $interval
+              sleep "$interval"
             done < images.txt
 
             round=$((round + 1))
