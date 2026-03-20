@@ -119,6 +119,8 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || (inputs.action != 'stop' && inputs.action != 'restart')
     runs-on: ubuntu-latest
     timeout-minutes: 360  # 6小时最大限制
+    permissions:
+      contents: write    # 关键：允许触发 repository_dispatch
 
     steps:
       - uses: actions/checkout@v4
