@@ -23,8 +23,20 @@ jobs:
       - id: set-matrix
         run: |
           REPOS="${{ github.event.inputs.repos }}"
-          IFS=',' read -ra REPO_ARRAY <<< "$REPOS"
-          JSON_ARRAY=$(printf '%s\n' "${REPO_ARRAY[@]}" | jq -R . | jq -s 'map(select(. != ""))')
+          # 去除空格并分割
+          REPO_LIST=$(echo "$REPOS" | tr -d ' ' | tr ',' '\n' | grep -v '^$')
+          # 手动构建 JSON 数组
+          JSON_ARRAY="["
+          FIRST=true
+          while IFS= read -r REPO; do
+            if [ "$FIRST" = true ]; then
+              FIRST=false
+            else
+              JSON_ARRAY="$JSON_ARRAY,"
+            fi
+            JSON_ARRAY="$JSON_ARRAY\"$REPO\""
+          done <<< "$REPO_LIST"
+          JSON_ARRAY="$JSON_ARRAY]"
           echo "repos=$JSON_ARRAY" >> $GITHUB_OUTPUT
 
   build:
