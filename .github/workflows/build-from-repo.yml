@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
     inputs:
       repos:
-        description: 'JSON数组格式的仓库名列表，例如: ["owner/repo1", "owner/repo2"]'
+        description: '仓库名列表，用逗号分隔，例如: owner/repo1,owner/repo2'
         required: true
-        default: '["owner/repo1"]'
+        default: 'owner/repo1'
       tags:
         description: '镜像标签，用逗号分隔，例如: latest,1.0.0'
         required: false
@@ -15,11 +15,24 @@ env:
   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      repos: ${{ steps.set-matrix.outputs.repos }}
+    steps:
+      - id: set-matrix
+        run: |
+          REPOS="${{ github.event.inputs.repos }}"
+          IFS=',' read -ra REPO_ARRAY <<< "$REPOS"
+          JSON_ARRAY=$(printf '%s\n' "${REPO_ARRAY[@]}" | jq -R . | jq -s 'map(select(. != ""))')
+          echo "repos=$JSON_ARRAY" >> $GITHUB_OUTPUT
+
   build:
     runs-on: ubuntu-latest
+    needs: prepare
     strategy:
       matrix:
-        repo: ${{ fromJSON(github.event.inputs.repos) }}
+        repo: ${{ fromJSON(needs.prepare.outputs.repos) }}
       fail-fast: false
     steps:
       - name: Checkout
@@ -41,7 +54,12 @@ jobs:
         run: |
           REPO=${{ matrix.repo }}
           REPO_NAME=$(echo $REPO | cut -d'/' -f2)
-          git clone https://github.com/$REPO.git $REPO_NAME
+          OWNER=$(echo $REPO | cut -d'/' -f1)
+          if [ "$OWNER" = "smanx" ]; then
+            git clone https://${{ secrets.GITHUB_TOKEN }}@github.com/$REPO.git $REPO_NAME
+          else
+            git clone https://github.com/$REPO.git $REPO_NAME
+          fi
           echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
           echo "REPO_DIR=$REPO_NAME" >> $GITHUB_ENV
 
