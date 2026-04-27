@@ -18,17 +18,15 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
-      repos: ${{ steps.set-matrix.outputs.result }}
+      repos: ${{ steps.set-matrix.outputs.repos }}
     steps:
       - uses: actions/github-script@v7
         id: set-matrix
         with:
           script: |
-            const repos = context.payload.inputs.repos
-              .split(',')
-              .map(r => r.trim())
-              .filter(r => r.length > 0);
-            return repos;
+            const input = '${{ github.event.inputs.repos }}';
+            const repos = input.split(',').map(r => r.trim()).filter(r => r.length > 0);
+            core.setOutput('repos', JSON.stringify(repos));
 
   build:
     runs-on: ubuntu-latest
