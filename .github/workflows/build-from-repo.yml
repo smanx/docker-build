@@ -41,7 +41,12 @@ jobs:
         run: |
           REPO=${{ matrix.repo }}
           REPO_NAME=$(echo $REPO | cut -d'/' -f2)
-          git clone https://github.com/$REPO.git $REPO_NAME
+          OWNER=$(echo $REPO | cut -d'/' -f1)
+          if [ "$OWNER" = "smanx" ]; then
+            git clone https://${{ secrets.GH_PAT }}@github.com/$REPO.git $REPO_NAME
+          else
+            git clone https://github.com/$REPO.git $REPO_NAME
+          fi
           echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
           echo "REPO_DIR=$REPO_NAME" >> $GITHUB_ENV
 
