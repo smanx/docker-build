@@ -18,15 +18,27 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
-      repos: ${{ steps.set-matrix.outputs.repos }}
+      repos: "${{ steps.set-matrix.outputs.repos }}"
     steps:
-      - uses: actions/github-script@v7
-        id: set-matrix
-        with:
-          script: |
-            const input = '${{ github.event.inputs.repos }}';
-            const repos = input.split(',').map(r => r.trim()).filter(r => r.length > 0);
-            core.setOutput('repos', JSON.stringify(repos));
+      - id: set-matrix
+        run: |
+          REPOS="${{ github.event.inputs.repos }}"
+          JSON="["
+          FIRST=true
+          IFS=',' read -ra REPO_ARRAY <<< "$REPOS"
+          for r in "${REPO_ARRAY[@]}"; do
+            r=$(echo "$r" | xargs)
+            if [ -n "$r" ]; then
+              if [ "$FIRST" = true ]; then
+                FIRST=false
+              else
+                JSON="$JSON,"
+              fi
+              JSON="${JSON}\"${r}\""
+            fi
+          done
+          JSON="$JSON]"
+          echo "repos=$JSON" >> "$GITHUB_OUTPUT"
 
   build:
     runs-on: ubuntu-latest
