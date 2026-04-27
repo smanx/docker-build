@@ -23,8 +23,13 @@ jobs:
       - id: set-matrix
         run: |
           REPOS="${{ github.event.inputs.repos }}"
-          JSON_ARRAY=$(echo "$REPOS" | jq -R 'split(",") | map(gsub("^\\s+|\\s+"; "")) | map(select(length > 0))')
-          echo "repos=$JSON_ARRAY" >> $GITHUB_OUTPUT
+          IFS=',' read -ra REPO_ARRAY <<< "$REPOS"
+          TEMP=()
+          for r in "${REPO_ARRAY[@]}"; do
+            r=$(echo "$r" | xargs)
+            [ -n "$r" ] && TEMP+=("\"$r\"")
+          done
+          echo "repos=[$(IFS=,; echo "${TEMP[*]}")]" >> $GITHUB_OUTPUT
 
   build:
     runs-on: ubuntu-latest
