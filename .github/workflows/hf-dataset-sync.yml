@@ -1,0 +1,121 @@
+name: Hugging Face Datasets Sync
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 每天 UTC 0 点运行
+  workflow_dispatch:
+    inputs:
+      sync_config:
+        description: '同步配置（JSON 数组格式），可选，不填则使用 HF_SYNC_CONFIG variable'
+        required: false
+        type: string
+        default: ''
+
+env:
+  # 整个同步配置存储在 GitHub Variables 的 HF_SYNC_CONFIG 中
+  # 配置格式（直接是数组）:
+  # [
+  #   {
+  #     "source": "account1/dataset1",
+  #     "target": "account2/dataset1-backup",
+  #     "source_token": "token1",
+  #     "target_token": "token2"
+  #   },
+  #   {
+  #     "source": "account3/dataset2",
+  #     "target": "account4/dataset2-backup",
+  #     "source_token": "token3",
+  #     "target_token": "token4"
+  #   }
+  # ]
+
+jobs:
+  run-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install huggingface_hub
+
+      - name: 同步所有 Datasets
+        env:
+          SYNC_CONFIG: ${{ inputs.sync_config || vars.HF_SYNC_CONFIG }}
+        run: |
+          python << 'EOF'
+          import os
+          import json
+          from huggingface_hub import HfApi, snapshot_download
+
+          def sync_dataset(source, target, source_token, target_token):
+              """同步一个 Hugging Face dataset 从源到目标，使用不同的 token"""
+              print(f"\n{'='*60}")
+              print(f"开始同步: {source} -> {target}")
+              print(f"{'='*60}")
+              
+              # 下载源 dataset
+              print("正在下载源 dataset...")
+              local_dir = snapshot_download(
+                  repo_id=source,
+                  repo_type="dataset",
+                  token=source_token
+              )
+              print(f"下载完成: {local_dir}")
+              
+              # 上传到目标 dataset
+              print("正在上传到目标 dataset...")
+              target_api = HfApi(token=target_token)
+              target_api.upload_folder(
+                  folder_path=local_dir,
+                  repo_id=target,
+                  repo_type="dataset",
+                  token=target_token
+              )
+              print(f"✅ 同步完成: {source} -> {target}")
+
+          # 读取配置
+          sync_config = os.environ.get('SYNC_CONFIG', '')
+          if not sync_config:
+              print("❌ 未找到同步配置，请设置 HF_SYNC_CONFIG variable 或通过 inputs.sync_config 提供")
+              exit(1)
+          
+          sync_pairs = json.loads(sync_config)
+          
+          # 执行同步
+          success_count = 0
+          fail_count = 0
+          
+          for pair in sync_pairs:
+              source = pair.get('source', '')
+              target = pair.get('target', '')
+              source_token = pair.get('source_token', '')
+              target_token = pair.get('target_token', '')
+              
+              # 验证配置
+              if not source or not target or not source_token or not target_token:
+                  print(f"\n⚠️  跳过无效同步对: {pair} (缺少必要字段)")
+                  fail_count += 1
+                  continue
+              
+              try:
+                  sync_dataset(source, target, source_token, target_token)
+                  success_count += 1
+              except Exception as e:
+                  print(f"\n❌ 同步失败 {source} -> {target}: {e}")
+                  fail_count += 1
+          
+          # 总结
+          print(f"\n{'='*60}")
+          print(f"同步完成: 成功 {success_count}, 失败 {fail_count}")
+          print(f"{'='*60}")
+          
+          if fail_count > 0:
+              exit(1)
+          EOF
