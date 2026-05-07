@@ -36,7 +36,7 @@ jobs:
           import json
           from huggingface_hub import HfApi, snapshot_download
 
-          def ensure_target_repo_exists(target, target_token):
+          def ensure_target_repo_exists(target, target_token, private=True):
               """确保目标仓库存在，不存在则创建"""
               api = HfApi(token=target_token)
               try:
@@ -46,29 +46,30 @@ jobs:
                   return True
               except Exception as e:
                   # 仓库不存在，尝试创建
-                  print(f"目标仓库不存在，正在创建: {target}")
+                  visibility = "私有" if private else "公开"
+                  print(f"目标仓库不存在，正在创建{visibility}仓库: {target}")
                   try:
                       api.create_repo(
                           repo_id=target,
                           repo_type="dataset",
                           token=target_token,
                           exist_ok=True,
-                          private=True
+                          private=private
                       )
-                      print(f"✅ 成功创建目标仓库: {target}")
+                      print(f"✅ 成功创建{visibility}目标仓库: {target}")
                       return True
                   except Exception as create_error:
                       print(f"❌ 创建目标仓库失败: {create_error}")
                       return False
 
-          def sync_dataset(source, target, source_token, target_token):
+          def sync_dataset(source, target, source_token, target_token, private=True):
               """同步一个 Hugging Face dataset 从源到目标，使用不同的 token"""
               print(f"\n{'='*60}")
               print(f"开始同步: {source} -> {target}")
               print(f"{'='*60}")
               
               # 确保目标仓库存在
-              if not ensure_target_repo_exists(target, target_token):
+              if not ensure_target_repo_exists(target, target_token, private):
                   raise Exception("无法创建目标仓库")
               
               # 下载源 dataset
@@ -108,6 +109,7 @@ jobs:
               target = pair.get('target', '')
               source_token = pair.get('source_token', '')
               target_token = pair.get('target_token', '')
+              private = pair.get('private', True)
               
               # 验证配置
               if not source or not target or not source_token or not target_token:
@@ -116,7 +118,7 @@ jobs:
                   continue
               
               try:
-                  sync_dataset(source, target, source_token, target_token)
+                  sync_dataset(source, target, source_token, target_token, private)
                   success_count += 1
               except Exception as e:
                   print(f"\n❌ 同步失败 {source} -> {target}: {e}")
