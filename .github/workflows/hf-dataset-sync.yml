@@ -10,6 +10,27 @@ on:
         required: false
         type: string
         default: ''
+      config_example:
+        description: '配置示例（仅作参考，不参与运行）'
+        required: false
+        type: string
+        default: |
+          [
+            {
+              "source": "account1/dataset1",
+              "target": "account2/dataset1-backup",
+              "source_token": "hf_xxxxxxxxxx",
+              "target_token": "hf_yyyyyyyyyy",
+              "private": true
+            },
+            {
+              "source": "account3/dataset2",
+              "target": "account4/dataset2-backup",
+              "source_token": "hf_zzzzzzzzzz",
+              "target_token": "hf_wwwwwwwwww",
+              "private": false
+            }
+          ]
 
 jobs:
   run-sync:
