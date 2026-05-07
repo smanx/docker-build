@@ -11,24 +11,6 @@ on:
         type: string
         default: ''
 
-env:
-  # 整个同步配置存储在 GitHub Variables 的 HF_SYNC_CONFIG 中
-  # 配置格式（直接是数组）:
-  # [
-  #   {
-  #     "source": "account1/dataset1",
-  #     "target": "account2/dataset1-backup",
-  #     "source_token": "token1",
-  #     "target_token": "token2"
-  #   },
-  #   {
-  #     "source": "account3/dataset2",
-  #     "target": "account4/dataset2-backup",
-  #     "source_token": "token3",
-  #     "target_token": "token4"
-  #   }
-  # ]
-
 jobs:
   run-sync:
     runs-on: ubuntu-latest
@@ -54,11 +36,40 @@ jobs:
           import json
           from huggingface_hub import HfApi, snapshot_download
 
+          def ensure_target_repo_exists(target, target_token):
+              """确保目标仓库存在，不存在则创建"""
+              api = HfApi(token=target_token)
+              try:
+                  # 尝试获取仓库信息
+                  api.repo_info(repo_id=target, repo_type="dataset", token=target_token)
+                  print(f"目标仓库已存在: {target}")
+                  return True
+              except Exception as e:
+                  # 仓库不存在，尝试创建
+                  print(f"目标仓库不存在，正在创建: {target}")
+                  try:
+                      api.create_repo(
+                          repo_id=target,
+                          repo_type="dataset",
+                          token=target_token,
+                          exist_ok=True,
+                          private=True
+                      )
+                      print(f"✅ 成功创建目标仓库: {target}")
+                      return True
+                  except Exception as create_error:
+                      print(f"❌ 创建目标仓库失败: {create_error}")
+                      return False
+
           def sync_dataset(source, target, source_token, target_token):
               """同步一个 Hugging Face dataset 从源到目标，使用不同的 token"""
               print(f"\n{'='*60}")
               print(f"开始同步: {source} -> {target}")
               print(f"{'='*60}")
+              
+              # 确保目标仓库存在
+              if not ensure_target_repo_exists(target, target_token):
+                  raise Exception("无法创建目标仓库")
               
               # 下载源 dataset
               print("正在下载源 dataset...")
