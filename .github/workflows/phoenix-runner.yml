@@ -76,7 +76,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'restart'
     runs-on: ubuntu-latest
     steps:
-      - name: 发送停止信号并触发新运行
+      - name: 发送停止信号
         run: |
           TOKEN="${{ env.HF_TOKEN }}"
           DATASET="${{ env.HF_DATASET }}"
@@ -102,19 +102,7 @@ jobs:
           "
 
           echo "正在运行的实例将在 30 秒内执行备份并退出"
-          echo "正在触发新运行..."
-
-      - name: 等待后触发新运行
-        run: |
-          WAIT_SECONDS="${{ env.WAIT_BEFORE_NEXT || '60' }}"
-          echo "⏳ 等待 ${WAIT_SECONDS} 秒后触发新运行..."
-          sleep $WAIT_SECONDS
-
-      - name: 触发新运行
-        uses: peter-evans/repository-dispatch@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          event-type: phoenix-restart-run-next
+          echo "备份完成后将自动触发新运行"
 
   # 正常运行
   run:
@@ -660,9 +648,10 @@ jobs:
             SHOULD_RESTART="false"
             NEED_RESET="true"
           elif [ "$STOP_REQ" = "true" ] && [ "$RESTART_REQ" = "true" ]; then
-            echo "✅ restart 操作触发的停止，由 restart job 负责触发新运行"
-            SHOULD_RESTART="false"
+            echo "✅ restart 操作触发的停止，触发新运行"
+            SHOULD_RESTART="true"
             NEED_RESET="false"
+            RESTART_TYPE="restart"
           elif [ "$RESTART_REQ" = "true" ]; then
             echo "✅ 正常退出，需要重启（时间到期）"
             SHOULD_RESTART="true"
