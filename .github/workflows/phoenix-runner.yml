@@ -1,16 +1,15 @@
 name: Phoenix Runner
 
 env:
-  # Default backup list lives in a file to keep this workflow readable.
   BACKUP_DIRS_FILE: '.github/backup-dirs.txt'
-  BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD || 'admin' }}
-  DURATION: ${{ secrets.DURATION || '330' }}
-  WAIT_BEFORE_NEXT: ${{ secrets.WAIT_BEFORE_NEXT || '60' }}
-  HF_USERNAME: ${{ secrets.HF_USERNAME || 'nudomaga' }}
-  HF_TOKEN: ${{ secrets.HF_TOKEN || '' }}
-  HF_DATASET: ${{ secrets.HF_DATASET || 'nudomaga/phoenix-data' }}
-  CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN || '' }}
-  HOSTNAME: ${{ secrets.HOSTNAME || 'github-runner' }}
+  BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD || vars.BACKUP_PASSWORD || 'admin' }}
+  DURATION: ${{ secrets.DURATION || vars.DURATION || '330' }}
+  WAIT_BEFORE_NEXT: ${{ secrets.WAIT_BEFORE_NEXT || vars.WAIT_BEFORE_NEXT || '60' }}
+  HF_USERNAME: ${{ secrets.HF_USERNAME || vars.HF_USERNAME || 'nudomaga' }}
+  HF_TOKEN: ${{ secrets.HF_TOKEN || vars.HF_TOKEN || '' }}
+  HF_DATASET: ${{ secrets.HF_DATASET || vars.HF_DATASET || 'nudomaga/phoenix-data' }}
+  CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN || vars.CF_TUNNEL_TOKEN || '' }}
+  HOSTNAME: ${{ secrets.HOSTNAME || vars.HOSTNAME || 'github-runner' }}
 
 on:
   workflow_dispatch:
