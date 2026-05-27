@@ -1,9 +1,5 @@
 name: Phoenix Runner
 
-concurrency:
-  group: phoenix-runner
-  cancel-in-progress: false
-
 env:
   BACKUP_DIRS_FILE: '.github/backup-dirs.txt'
   BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD || vars.BACKUP_PASSWORD || 'admin' }}
@@ -43,6 +39,9 @@ jobs:
   stop:
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'stop'
     runs-on: ubuntu-latest
+    concurrency:
+      group: phoenix-stop
+      cancel-in-progress: false
     steps:
       - name: 发送停止信号
         run: |
@@ -75,6 +74,9 @@ jobs:
   restart:
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'restart'
     runs-on: ubuntu-latest
+    concurrency:
+      group: phoenix-restart
+      cancel-in-progress: false
     steps:
       - name: 发送停止信号
         run: |
@@ -108,6 +110,9 @@ jobs:
   run:
     if: github.event_name != 'workflow_dispatch' || inputs.action == 'run'
     runs-on: ubuntu-latest
+    concurrency:
+      group: phoenix-run
+      cancel-in-progress: false
     timeout-minutes: 360  # 6小时最大限制
     permissions:
       contents: write    # 关键：允许触发 repository_dispatch
