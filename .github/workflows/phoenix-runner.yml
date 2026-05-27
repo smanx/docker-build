@@ -667,11 +667,11 @@ jobs:
           SHOULD_RESTART="false"
           NEED_RESET="false"
           
-          if [ "$STOP_REQ" = "true" ] && [ "$RESTART_SIGNAL" != "true" ]; then
+          if [ "$STOP_REQ" = "true" ] && [ "$RESTART_REQ" != "true" ]; then
             echo "⚠️ 用户主动停止（stop 操作）"
             SHOULD_RESTART="false"
             NEED_RESET="true"
-          elif [ "$STOP_REQ" = "true" ] && [ "$RESTART_SIGNAL" = "true" ]; then
+          elif [ "$STOP_REQ" = "true" ] && [ "$RESTART_REQ" = "true" ]; then
             echo "✅ restart 操作触发的停止，由 restart job 负责触发新运行"
             SHOULD_RESTART="false"
             NEED_RESET="false"
