@@ -629,8 +629,8 @@ jobs:
 
   # 自动触发下一次循环（统一处理正常退出和异常退出）
   auto-restart:
-    needs: run
-    if: always()
+    needs: [run, stop]
+    if: always() && (needs.run.result != 'skipped' || needs.stop.result != 'skipped')
     runs-on: ubuntu-latest
     steps:
       - name: 检查状态并决定是否重启
