@@ -673,8 +673,21 @@ jobs:
           echo "restart 信号: $RESTART_SIGNAL"
           echo ""
           
-          if [ "$STOP_REQ" = "true" ] && [ "$RESTART_SIGNAL" != "true" ]; then
-            echo "⚠️ 用户主动停止（通过 stop job，非 restart）"
+          # 如果 run job 被跳过，说明这是 stop/restart 操作触发的实例
+          # 不应该触发新运行（由正在运行的实例负责），只负责重置信号
+          if [ "$RUN_RESULT" = "skipped" ]; then
+            echo "ℹ️ run job 被跳过，这是 stop/restart 操作触发的实例"
+            if [ "$RESTART_SIGNAL" = "true" ]; then
+              echo "⏳ restart 模式：等待正在运行的实例触发新运行..."
+              SHOULD_RESTART="false"
+              NEED_RESET="false"
+            else
+              echo "🛑 stop 模式：重置停止信号"
+              SHOULD_RESTART="false"
+              NEED_RESET="true"
+            fi
+          elif [ "$STOP_REQ" = "true" ]; then
+            echo "⚠️ 用户主动停止（通过 stop job）"
             SHOULD_RESTART="false"
             NEED_RESET="true"
           elif [ "$STOP_SIGNAL" = "true" ] && [ "$RESTART_SIGNAL" = "true" ]; then
@@ -682,7 +695,7 @@ jobs:
             SHOULD_RESTART="true"
             NEED_RESET="true"
           elif [ "$STOP_SIGNAL" = "true" ]; then
-            echo "⚠️ 检测到停止信号（stop.json，非 restart）"
+            echo "⚠️ 检测到停止信号（stop.json）"
             SHOULD_RESTART="false"
             NEED_RESET="true"
           elif [ "$RESTART_REQ" = "true" ]; then
