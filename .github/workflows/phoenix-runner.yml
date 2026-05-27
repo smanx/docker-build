@@ -625,7 +625,7 @@ jobs:
   # 自动触发下一次循环
   auto-restart:
     needs: run
-    if: always() && needs.run.result != 'skipped'
+    if: always() && needs.run.result != 'skipped' && needs.run.result != 'cancelled'
     runs-on: ubuntu-latest
     steps:
       - name: 检查状态并决定是否重启
@@ -662,7 +662,7 @@ jobs:
             SHOULD_RESTART="true"
             NEED_RESET="false"
             RESTART_TYPE="duration"
-          elif [ "$RUN_RESULT" = "failure" ] || [ "$RUN_RESULT" = "cancelled" ]; then
+          elif [ "$RUN_RESULT" = "failure" ]; then
             echo "✅ 异常退出，自动重启"
             SHOULD_RESTART="true"
             NEED_RESET="false"
