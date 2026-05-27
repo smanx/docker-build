@@ -4,7 +4,6 @@ env:
   BACKUP_DIRS_FILE: '.github/backup-dirs.txt'
   BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD || vars.BACKUP_PASSWORD || 'admin' }}
   DURATION: ${{ secrets.DURATION || vars.DURATION || '330' }}
-  WAIT_BEFORE_NEXT: ${{ secrets.WAIT_BEFORE_NEXT || vars.WAIT_BEFORE_NEXT || '60' }}
   HF_USERNAME: ${{ secrets.HF_USERNAME || vars.HF_USERNAME || 'nudomaga' }}
   HF_TOKEN: ${{ secrets.HF_TOKEN || vars.HF_TOKEN || '' }}
   HF_DATASET: ${{ secrets.HF_DATASET || vars.HF_DATASET || 'nudomaga/phoenix-data' }}
@@ -678,14 +677,6 @@ jobs:
           echo "need_reset=$NEED_RESET" >> $GITHUB_OUTPUT
           echo "restart_type=$RESTART_TYPE" >> $GITHUB_OUTPUT
           echo "最终决策: should_restart=$SHOULD_RESTART, need_reset=$NEED_RESET, restart_type=$RESTART_TYPE"
-          
-      - name: 等待下次运行
-        if: steps.check.outputs.should_restart == 'true'
-        run: |
-          WAIT_SECONDS="${{ env.WAIT_BEFORE_NEXT || '60' }}"
-          echo "⏳ 等待 ${WAIT_SECONDS} 秒后开始下次运行..."
-          sleep $WAIT_SECONDS
-          echo "✅ 等待完成"
           
       - name: 重置停止信号
         if: steps.check.outputs.need_reset == 'true'
