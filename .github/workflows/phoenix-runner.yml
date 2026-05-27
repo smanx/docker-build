@@ -32,7 +32,7 @@ on:
         required: false
         type: string
   repository_dispatch:
-    types: [run-next]
+    types: [phoenix-run-next, phoenix-restart-run-next, phoenix-duration-run-next, phoenix-auto-run-next]
 
 jobs:
   # 发送停止信号（仅 stop 操作）
@@ -111,7 +111,7 @@ jobs:
         uses: peter-evans/repository-dispatch@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          event-type: run-next
+          event-type: phoenix-restart-run-next
 
   # 正常运行
   run:
@@ -665,6 +665,7 @@ jobs:
           # 决策逻辑
           SHOULD_RESTART="false"
           NEED_RESET="false"
+          RESTART_TYPE=""
           
           if [ "$STOP_REQ" = "true" ] && [ "$RESTART_REQ" != "true" ]; then
             echo "⚠️ 用户主动停止（stop 操作）"
@@ -678,10 +679,12 @@ jobs:
             echo "✅ 正常退出，需要重启（时间到期）"
             SHOULD_RESTART="true"
             NEED_RESET="false"
+            RESTART_TYPE="duration"
           elif [ "$RUN_RESULT" = "failure" ] || [ "$RUN_RESULT" = "cancelled" ]; then
             echo "✅ 异常退出，自动重启"
             SHOULD_RESTART="true"
             NEED_RESET="false"
+            RESTART_TYPE="auto"
           else
             echo "✅ 正常完成，无需重启"
             SHOULD_RESTART="false"
@@ -691,7 +694,8 @@ jobs:
           echo ""
           echo "should_restart=$SHOULD_RESTART" >> $GITHUB_OUTPUT
           echo "need_reset=$NEED_RESET" >> $GITHUB_OUTPUT
-          echo "最终决策: should_restart=$SHOULD_RESTART, need_reset=$NEED_RESET"
+          echo "restart_type=$RESTART_TYPE" >> $GITHUB_OUTPUT
+          echo "最终决策: should_restart=$SHOULD_RESTART, need_reset=$NEED_RESET, restart_type=$RESTART_TYPE"
           
       - name: 等待下次运行
         if: steps.check.outputs.should_restart == 'true'
@@ -724,7 +728,7 @@ jobs:
         uses: peter-evans/repository-dispatch@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          event-type: run-next
+          event-type: phoenix-${{ steps.check.outputs.restart_type }}-run-next
           
       - name: 完成报告
         if: always()
