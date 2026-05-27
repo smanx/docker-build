@@ -36,9 +36,9 @@ on:
     types: [run-next]
 
 jobs:
-  # 发送停止信号
+  # 发送停止信号（仅 stop 操作）
   stop:
-    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'stop' || inputs.action == 'restart')
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'stop'
     runs-on: ubuntu-latest
     steps:
       - name: 发送停止信号
@@ -46,77 +46,77 @@ jobs:
           TOKEN="${{ env.HF_TOKEN }}"
           USERNAME="${{ env.HF_USERNAME }}"
           DATASET="${{ env.HF_DATASET }}"
-          ACTION="${{ inputs.action }}"
 
           if [ -z "$TOKEN" ]; then
             echo "错误：HF_TOKEN 未设置"
             exit 1
           fi
 
-          # 安装依赖
           pip install huggingface_hub -q
-          sudo apt-get install -y git-lfs
-          git lfs install
+          python3 -c "
+          from huggingface_hub import HfApi
+          import json
+          api = HfApi()
+          api.upload_file(
+              path_or_fileobj=json.dumps({'stop': True, 'restart': False, 'timestamp': '$(date -Iseconds)'}).encode(),
+              path_in_repo='stop.json',
+              repo_id='$DATASET',
+              repo_type='dataset',
+              token='$TOKEN'
+          )
+          print('✅ 停止信号已发送')
+          "
 
-          # 配置 git
-          git config --global user.name "$USERNAME"
-          git config --global user.email "$USERNAME@users.noreply.huggingface.co"
+          echo "正在运行的实例将在 30 秒内执行备份并退出"
 
-          # 设置环境变量供 Python 使用
-          export TOKEN="$TOKEN"
-          export DATASET="$DATASET"
+  # 重启操作（独立的 job）
+  restart:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'restart'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 发送停止信号并触发新运行
+        run: |
+          TOKEN="${{ env.HF_TOKEN }}"
+          DATASET="${{ env.HF_DATASET }}"
 
-          # 检查并创建仓库
-          python << 'EOF'
-          from huggingface_hub import HfApi, create_repo, repo_exists
-          import os
-
-          token = os.environ.get('TOKEN')
-          dataset = os.environ.get('DATASET')
-
-          if not repo_exists(repo_id=dataset, repo_type="dataset", token=token):
-              print(f"创建 dataset 仓库: {dataset}")
-              create_repo(
-                  repo_id=dataset,
-                  repo_type="dataset",
-                  token=token,
-                  private=False,
-                  exist_ok=True
-              )
-              print(f"✅ 仓库创建成功")
-          else:
-              print(f"✅ 仓库已存在")
-          EOF
-
-          # 克隆仓库
-          if git clone "https://$USERNAME:$TOKEN@huggingface.co/datasets/$DATASET" repo 2>/dev/null; then
-            cd repo
-          else
-            mkdir -p repo
-            cd repo
-            git init
-            git remote add origin "https://$USERNAME:$TOKEN@huggingface.co/datasets/$DATASET"
+          if [ -z "$TOKEN" ]; then
+            echo "错误：HF_TOKEN 未设置"
+            exit 1
           fi
 
-          # 创建停止信号文件
-          RESTART=false
-          if [ "$ACTION" = "restart" ]; then
-            RESTART=true
-          fi
-          echo '{"stop": true, "restart": '"$RESTART"', "timestamp": "'$(date -Iseconds)'"}' > stop.json
+          pip install huggingface_hub -q
+          python3 -c "
+          from huggingface_hub import HfApi
+          import json
+          api = HfApi()
+          api.upload_file(
+              path_or_fileobj=json.dumps({'stop': True, 'restart': True, 'timestamp': '$(date -Iseconds)'}).encode(),
+              path_in_repo='stop.json',
+              repo_id='$DATASET',
+              repo_type='dataset',
+              token='$TOKEN'
+          )
+          print('✅ 停止信号已发送')
+          "
 
-          # 提交并推送
-          git add stop.json
-          git commit -m "stop signal $(date '+%Y-%m-%d %H:%M:%S')" --allow-empty
-          git push -f origin HEAD:main 2>/dev/null || git push -u origin HEAD:main
+          echo "正在运行的实例将在 30 秒内执行备份并退出"
+          echo "正在触发新运行..."
 
-            echo "✅ 停止信号已发送"
-            echo "   正在运行的 loop 将在 30 秒内执行备份并退出"
-            echo "   restart: $RESTART"
+      - name: 等待后触发新运行
+        run: |
+          WAIT_SECONDS="${{ env.WAIT_BEFORE_NEXT || '60' }}"
+          echo "⏳ 等待 ${WAIT_SECONDS} 秒后触发新运行..."
+          sleep $WAIT_SECONDS
+
+      - name: 触发新运行
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: run-next
 
   # 正常运行
   run:
-    if: github.event_name != 'workflow_dispatch' || (inputs.action != 'stop' && inputs.action != 'restart')
+    if: github.event_name != 'workflow_dispatch' || inputs.action == 'run'
     runs-on: ubuntu-latest
     timeout-minutes: 360  # 6小时最大限制
     permissions:
@@ -627,10 +627,10 @@ jobs:
           TOKEN: ${{ env.HF_TOKEN }}
           DATASET: ${{ env.HF_DATASET }}
 
-  # 自动触发下一次循环（统一处理正常退出和异常退出）
+  # 自动触发下一次循环
   auto-restart:
-    needs: [run, stop]
-    if: always() && (needs.run.result != 'skipped' || needs.stop.result != 'skipped')
+    needs: run
+    if: always() && needs.run.result != 'skipped'
     runs-on: ubuntu-latest
     steps:
       - name: 检查状态并决定是否重启
@@ -654,10 +654,12 @@ jobs:
           STOP_FILE=$(curl -s -H 'Cache-Control: no-cache' --connect-timeout 5 "$STOP_URL" 2>/dev/null || echo "")
           
           STOP_SIGNAL="false"
+          RESTART_SIGNAL="false"
           if [ -n "$STOP_FILE" ]; then
             STOP_SIGNAL=$(echo "$STOP_FILE" | grep -o '"stop"[[:space:]]*:[[:space:]]*[a-z]*' | head -1 | cut -d':' -f2 | tr -d ' ')
+            RESTART_SIGNAL=$(echo "$STOP_FILE" | grep -o '"restart"[[:space:]]*:[[:space:]]*[a-z]*' | head -1 | cut -d':' -f2 | tr -d ' ')
             echo "stop.json 内容: $STOP_FILE"
-            echo "解析 stop=$STOP_SIGNAL"
+            echo "解析 stop=$STOP_SIGNAL, restart=$RESTART_SIGNAL"
           fi
           echo ""
           
@@ -665,62 +667,16 @@ jobs:
           SHOULD_RESTART="false"
           NEED_RESET="false"
           
-          # 从 stop.json 解析 restart 信号
-          RESTART_SIGNAL="false"
-          if [ -n "$STOP_FILE" ]; then
-            RESTART_SIGNAL=$(echo "$STOP_FILE" | grep -o '"restart"[[:space:]]*:[[:space:]]*[a-z]*' | head -1 | cut -d':' -f2 | tr -d ' ')
-          fi
-          echo "restart 信号: $RESTART_SIGNAL"
-          echo ""
-          
-          # 如果 run job 被跳过，说明这是 stop/restart 操作触发的实例
-          # 不应该触发新运行（由正在运行的实例负责），只负责重置信号
-          if [ "$RUN_RESULT" = "skipped" ]; then
-            echo "ℹ️ run job 被跳过，这是 stop/restart 操作触发的实例"
-            if [ "$RESTART_SIGNAL" = "true" ]; then
-              echo "⏳ restart 模式：等待 30 秒，检测是否有其他实例触发新运行..."
-              sleep 30
-              
-              # 重新检查信号
-              STOP_URL2="https://huggingface.co/datasets/${HF_DATASET}/raw/main/stop.json?t=$(date +%s)"
-              STOP_FILE2=$(curl -s -H 'Cache-Control: no-cache' --connect-timeout 5 "$STOP_URL2" 2>/dev/null || echo "")
-              STOP_SIGNAL2="false"
-              RESTART_SIGNAL2="false"
-              if [ -n "$STOP_FILE2" ]; then
-                STOP_SIGNAL2=$(echo "$STOP_FILE2" | grep -o '"stop"[[:space:]]*:[[:space:]]*[a-z]*' | head -1 | cut -d':' -f2 | tr -d ' ')
-                RESTART_SIGNAL2=$(echo "$STOP_FILE2" | grep -o '"restart"[[:space:]]*:[[:space:]]*[a-z]*' | head -1 | cut -d':' -f2 | tr -d ' ')
-              fi
-              echo "等待后检测: stop=$STOP_SIGNAL2, restart=$RESTART_SIGNAL2"
-              
-              # 如果信号仍然存在，说明没有其他实例在运行，需要自己触发
-              if [ "$STOP_SIGNAL2" = "true" ] && [ "$RESTART_SIGNAL2" = "true" ]; then
-                echo "⚠️ 没有检测到其他实例触发，将自行触发新运行"
-                SHOULD_RESTART="true"
-                NEED_RESET="true"
-              else
-                echo "✅ 信号已被其他实例处理，无需触发"
-                SHOULD_RESTART="false"
-                NEED_RESET="false"
-              fi
-            else
-              echo "🛑 stop 模式：重置停止信号"
-              SHOULD_RESTART="false"
-              NEED_RESET="true"
-            fi
-          elif [ "$STOP_REQ" = "true" ]; then
-            echo "⚠️ 用户主动停止（通过 stop job）"
+          if [ "$STOP_REQ" = "true" ] && [ "$RESTART_SIGNAL" != "true" ]; then
+            echo "⚠️ 用户主动停止（stop 操作）"
             SHOULD_RESTART="false"
             NEED_RESET="true"
-          elif [ "$STOP_SIGNAL" = "true" ] && [ "$RESTART_SIGNAL" = "true" ]; then
-            echo "✅ 检测到 restart 信号，触发新运行"
-            SHOULD_RESTART="true"
-            NEED_RESET="true"
-          elif [ "$STOP_SIGNAL" = "true" ]; then
-            echo "⚠️ 检测到停止信号（stop.json）"
+          elif [ "$STOP_REQ" = "true" ] && [ "$RESTART_SIGNAL" = "true" ]; then
+            echo "✅ restart 操作触发的停止，由 restart job 负责触发新运行"
             SHOULD_RESTART="false"
-            NEED_RESET="true"
+            NEED_RESET="false"
           elif [ "$RESTART_REQ" = "true" ]; then
-            echo "✅ 正常退出，需要重启（时间到期或 restart 信号）"
+            echo "✅ 正常退出，需要重启（时间到期）"
             SHOULD_RESTART="true"
             NEED_RESET="false"
           elif [ "$RUN_RESULT" = "failure" ] || [ "$RUN_RESULT" = "cancelled" ]; then
