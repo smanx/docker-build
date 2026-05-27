@@ -1,5 +1,9 @@
 name: Phoenix Runner
 
+concurrency:
+  group: phoenix-runner
+  cancel-in-progress: false
+
 env:
   BACKUP_DIRS_FILE: '.github/backup-dirs.txt'
   BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD || vars.BACKUP_PASSWORD || 'admin' }}
@@ -43,7 +47,6 @@ jobs:
       - name: 发送停止信号
         run: |
           TOKEN="${{ env.HF_TOKEN }}"
-          USERNAME="${{ env.HF_USERNAME }}"
           DATASET="${{ env.HF_DATASET }}"
 
           if [ -z "$TOKEN" ]; then
@@ -635,7 +638,6 @@ jobs:
       - name: 检查状态并决定是否重启
         id: check
         run: |
-          HF_DATASET="${{ env.HF_DATASET }}"
           RUN_RESULT="${{ needs.run.result }}"
           RESTART_REQ="${{ needs.run.outputs.restart_requested }}"
           STOP_REQ="${{ needs.run.outputs.stop_requested }}"
@@ -646,20 +648,6 @@ jobs:
           echo "run job 结果: $RUN_RESULT"
           echo "restart_requested: $RESTART_REQ"
           echo "stop_requested: $STOP_REQ"
-          echo ""
-          
-          # 检查 HF 上的停止信号
-          STOP_URL="https://huggingface.co/datasets/${HF_DATASET}/raw/main/stop.json?t=$(date +%s)"
-          STOP_FILE=$(curl -s -H 'Cache-Control: no-cache' --connect-timeout 5 "$STOP_URL" 2>/dev/null || echo "")
-          
-          STOP_SIGNAL="false"
-          RESTART_SIGNAL="false"
-          if [ -n "$STOP_FILE" ]; then
-            STOP_SIGNAL=$(echo "$STOP_FILE" | grep -o '"stop"[[:space:]]*:[[:space:]]*[a-z]*' | head -1 | cut -d':' -f2 | tr -d ' ')
-            RESTART_SIGNAL=$(echo "$STOP_FILE" | grep -o '"restart"[[:space:]]*:[[:space:]]*[a-z]*' | head -1 | cut -d':' -f2 | tr -d ' ')
-            echo "stop.json 内容: $STOP_FILE"
-            echo "解析 stop=$STOP_SIGNAL, restart=$RESTART_SIGNAL"
-          fi
           echo ""
           
           # 决策逻辑
