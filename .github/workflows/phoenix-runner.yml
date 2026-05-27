@@ -121,6 +121,9 @@ jobs:
     timeout-minutes: 360  # 6小时最大限制
     permissions:
       contents: write    # 关键：允许触发 repository_dispatch
+    outputs:
+      restart_requested: ${{ steps.set-output.outputs.restart_requested }}
+      stop_requested: ${{ steps.set-output.outputs.stop_requested }}
 
     steps:
       - uses: actions/checkout@v4
@@ -417,12 +420,6 @@ jobs:
                       echo "RESTART_REQUESTED=true" >> $GITHUB_ENV
                     fi
 
-                    # 后台异步重置停止信号（防止下次运行时立即停止）
-                    (
-                      pip install huggingface_hub -q 2>/dev/null
-                      python3 -c "from huggingface_hub import HfApi; import os, json; api=HfApi(); api.upload_file(path_or_fileobj=json.dumps({'stop':False,'restart':False,'timestamp':'','reset_by':'loop'}).encode(),path_in_repo='stop.json',repo_id=os.environ.get('HF_DATASET'),repo_type='dataset',token=os.environ.get('HF_TOKEN')); print('✅ 停止信号已重置')" 2>/dev/null
-                    ) &
-
                     break 2
                   fi
                 fi
@@ -430,6 +427,16 @@ jobs:
               sleep 1
             done
           done
+
+      - name: 设置输出状态
+        id: set-output
+        if: always()
+        run: |
+          RESTART="${{ env.RESTART_REQUESTED || 'false' }}"
+          STOP="${{ env.STOP_REQUESTED || 'false' }}"
+          echo "restart_requested=$RESTART" >> $GITHUB_OUTPUT
+          echo "stop_requested=$STOP" >> $GITHUB_OUTPUT
+          echo "输出状态: restart=$RESTART, stop=$STOP"
 
       # =============================================
       # 打包多个目录
@@ -620,31 +627,109 @@ jobs:
           TOKEN: ${{ env.HF_TOKEN }}
           DATASET: ${{ env.HF_DATASET }}
 
-      # =============================================
-      # 自动触发下一次循环
-      # =============================================
-      - name: 重启任务
-        # 确保即使前面打包/上传失败也能触发下一次（尤其是 restart/自动续跑 模式）
-        if: always() && (env.RESTART_REQUESTED == 'true')
+  # 自动触发下一次循环（统一处理正常退出和异常退出）
+  auto-restart:
+    needs: run
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检查状态并决定是否重启
+        id: check
+        run: |
+          HF_DATASET="${{ env.HF_DATASET }}"
+          RUN_RESULT="${{ needs.run.result }}"
+          RESTART_REQ="${{ needs.run.outputs.restart_requested }}"
+          STOP_REQ="${{ needs.run.outputs.stop_requested }}"
+          
+          echo "============================================="
+          echo "📊 状态检查"
+          echo "============================================="
+          echo "run job 结果: $RUN_RESULT"
+          echo "restart_requested: $RESTART_REQ"
+          echo "stop_requested: $STOP_REQ"
+          echo ""
+          
+          # 检查 HF 上的停止信号
+          STOP_URL="https://huggingface.co/datasets/${HF_DATASET}/raw/main/stop.json?t=$(date +%s)"
+          STOP_FILE=$(curl -s -H 'Cache-Control: no-cache' --connect-timeout 5 "$STOP_URL" 2>/dev/null || echo "")
+          
+          STOP_SIGNAL="false"
+          if [ -n "$STOP_FILE" ]; then
+            STOP_SIGNAL=$(echo "$STOP_FILE" | grep -o '"stop"[[:space:]]*:[[:space:]]*[a-z]*' | head -1 | cut -d':' -f2 | tr -d ' ')
+            echo "stop.json 内容: $STOP_FILE"
+            echo "解析 stop=$STOP_SIGNAL"
+          fi
+          echo ""
+          
+          # 决策逻辑
+          SHOULD_RESTART="false"
+          NEED_RESET="false"
+          
+          if [ "$STOP_REQ" = "true" ]; then
+            echo "⚠️ 用户主动停止（通过 stop job）"
+            SHOULD_RESTART="false"
+            NEED_RESET="true"
+          elif [ "$STOP_SIGNAL" = "true" ]; then
+            echo "⚠️ 检测到停止信号（stop.json）"
+            SHOULD_RESTART="false"
+            NEED_RESET="true"
+          elif [ "$RESTART_REQ" = "true" ]; then
+            echo "✅ 正常退出，需要重启（时间到期或 restart 信号）"
+            SHOULD_RESTART="true"
+            NEED_RESET="false"
+          elif [ "$RUN_RESULT" = "failure" ] || [ "$RUN_RESULT" = "cancelled" ]; then
+            echo "✅ 异常退出，自动重启"
+            SHOULD_RESTART="true"
+            NEED_RESET="false"
+          else
+            echo "✅ 正常完成，无需重启"
+            SHOULD_RESTART="false"
+            NEED_RESET="false"
+          fi
+          
+          echo ""
+          echo "should_restart=$SHOULD_RESTART" >> $GITHUB_OUTPUT
+          echo "need_reset=$NEED_RESET" >> $GITHUB_OUTPUT
+          echo "最终决策: should_restart=$SHOULD_RESTART, need_reset=$NEED_RESET"
+          
+      - name: 等待下次运行
+        if: steps.check.outputs.should_restart == 'true'
+        run: |
+          WAIT_SECONDS="${{ env.WAIT_BEFORE_NEXT || '60' }}"
+          echo "⏳ 等待 ${WAIT_SECONDS} 秒后开始下次运行..."
+          sleep $WAIT_SECONDS
+          echo "✅ 等待完成"
+          
+      - name: 重置停止信号
+        if: steps.check.outputs.need_reset == 'true'
+        run: |
+          pip install huggingface_hub -q
+          python3 -c "
+          from huggingface_hub import HfApi
+          import json
+          api = HfApi()
+          api.upload_file(
+              path_or_fileobj=json.dumps({'stop': False, 'restart': False, 'timestamp': '', 'reset_by': 'auto-restart'}).encode(),
+              path_in_repo='stop.json',
+              repo_id='${{ env.HF_DATASET }}',
+              repo_type='dataset',
+              token='${{ env.HF_TOKEN }}'
+          )
+          print('✅ 停止信号已重置')
+          "
+          
+      - name: 触发下一次运行
+        if: steps.check.outputs.should_restart == 'true'
         uses: peter-evans/repository-dispatch@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           event-type: run-next
-
-      - name: 等待下次运行
-        if: always() && (env.RESTART_REQUESTED == 'true')
+          
+      - name: 完成报告
+        if: always()
         run: |
-          WAIT_SECONDS=${{ env.WAIT_BEFORE_NEXT || '60' }}
-          echo "⏳ 等待 ${WAIT_SECONDS} 秒后开始下次运行..."
-          sleep $WAIT_SECONDS
-          echo "✅ 等待完成"
-
-      - name: 停止完成
-        if: always() && env.STOP_REQUESTED == 'true' && env.RESTART_REQUESTED != 'true'
-        run: |
-          echo "✅ 已按要求停止，不再重启"
-
-      - name: 重启完成
-        if: always() && (env.RESTART_REQUESTED == 'true')
-        run: |
-          echo "✅ 已按要求重启：完成备份并触发下一次运行"
+          if [ "${{ steps.check.outputs.should_restart }}" = "true" ]; then
+            echo "✅ 已触发下一次运行"
+          else
+            echo "✅ 工作流已停止，不再重启"
+          fi
