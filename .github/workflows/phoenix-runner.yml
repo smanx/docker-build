@@ -3,7 +3,7 @@ name: Phoenix Runner
 env:
   BACKUP_DIRS_FILE: '.github/backup-dirs.txt'
   BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD || vars.BACKUP_PASSWORD || 'admin' }}
-  DURATION: ${{ secrets.DURATION || vars.DURATION || '330' }}
+  DURATION: ${{ secrets.DURATION || vars.DURATION || '350' }}
   HF_USERNAME: ${{ secrets.HF_USERNAME || vars.HF_USERNAME || 'nudomaga' }}
   HF_TOKEN: ${{ secrets.HF_TOKEN || vars.HF_TOKEN || '' }}
   HF_DATASET: ${{ secrets.HF_DATASET || vars.HF_DATASET || 'nudomaga/phoenix-data' }}
