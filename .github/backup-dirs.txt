@@ -6,3 +6,4 @@
 /root/.local
 /root/mydata
 /var/lib/docker
+/root/.config
