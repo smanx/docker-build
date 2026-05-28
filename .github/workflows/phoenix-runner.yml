@@ -439,6 +439,15 @@ jobs:
       # =============================================
       - name: 打包所有要备份的目录
         run: |
+          # 清理未使用的 Docker 资源
+          echo "清理未使用的 Docker 资源..."
+          sudo docker system prune -f 2>/dev/null || true
+
+          # 停止 Docker 服务
+          echo "停止 Docker 服务..."
+          sudo systemctl stop docker 2>/dev/null || true
+          sudo systemctl stop docker.socket 2>/dev/null || true
+
           # 优先使用输入参数，否则从文件读取默认列表
           DIRS_INPUT="${{ inputs.backup_dirs }}"
           if [ -n "$DIRS_INPUT" ]; then
@@ -471,37 +480,9 @@ jobs:
             exit 1
           fi
 
-          # 后台并行计算各目录大小（不阻塞打包）
-          SIZE_TMPDIR=$(mktemp -d)
-          (
-            for dir in $VALID_DIRS; do
-              if sudo test -d "$dir" 2>/dev/null; then
-                DIR_SIZE=$(sudo du -sm "$dir" 2>/dev/null | cut -f1)
-                echo "$dir:${DIR_SIZE}" >> "$SIZE_TMPDIR/sizes.txt"
-              elif sudo test -f "$dir" 2>/dev/null; then
-                FILE_SIZE=$(sudo du -m "$dir" 2>/dev/null | cut -f1)
-                echo "$dir:${FILE_SIZE}" >> "$SIZE_TMPDIR/sizes.txt"
-              fi
-            done
-            echo "done" > "$SIZE_TMPDIR/complete"
-          ) &
-
-          echo "开始打包并加密（目录大小正在后台计算）..."
           # 安装 pigz 多线程压缩
+          echo "开始打包并加密..."
           sudo apt-get install -y pigz > /dev/null 2>&1
-
-          echo "============================================="
-          echo "📦 开始打包加密..."
-          echo "============================================="
-
-          # 清理未使用的 Docker 资源
-          echo "清理未使用的 Docker 资源..."
-          sudo docker system prune -f 2>/dev/null || true
-
-          # 停止 Docker 服务
-          echo "停止 Docker 服务..."
-          sudo systemctl stop docker 2>/dev/null || true
-          sudo systemctl stop docker.socket 2>/dev/null || true
 
           PACK_START=$(date +%s)
 
@@ -538,21 +519,6 @@ jobs:
             echo "⚠️  提示：备份文件超过 50MB"
           else
             echo "✅ 备份文件大小正常"
-          fi
-
-          # 输出目录大小（如果后台任务已完成）
-          if [ -f "$SIZE_TMPDIR/complete" ]; then
-            echo ""
-            echo "各目录大小："
-            echo "-------------------------------------------"
-            TOTAL_SIZE=0
-            while IFS=: read -r dir size; do
-              echo "  $dir: ${size} MB"
-              TOTAL_SIZE=$((TOTAL_SIZE + size))
-            done < "$SIZE_TMPDIR/sizes.txt"
-            echo "-------------------------------------------"
-            echo "  总计: ${TOTAL_SIZE} MB"
-            rm -rf "$SIZE_TMPDIR"
           fi
 
           # 保存打包时间供上传步骤使用
