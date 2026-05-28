@@ -681,7 +681,7 @@ jobs:
       - name: 重置停止信号
         if: steps.check.outputs.need_reset == 'true'
         run: |
-          pip install huggingface_hub -q
+          pip install --user huggingface_hub -q
           python3 -c "
           from huggingface_hub import HfApi
           import json
