@@ -53,12 +53,13 @@ jobs:
           fi
 
           pip install --user huggingface_hub -q
+          TIMESTAMP=$(date -Iseconds)
           python3 -c "
           from huggingface_hub import HfApi
           import json
           api = HfApi()
           api.upload_file(
-              path_or_fileobj=json.dumps({'stop': True, 'restart': False, 'timestamp': '$(date -Iseconds)'}).encode(),
+              path_or_fileobj=json.dumps({'stop': True, 'restart': False, 'timestamp': '$TIMESTAMP'}).encode(),
               path_in_repo='stop.json',
               repo_id='$DATASET',
               repo_type='dataset',
@@ -88,12 +89,13 @@ jobs:
           fi
 
           pip install --user huggingface_hub -q
+          TIMESTAMP=$(date -Iseconds)
           python3 -c "
           from huggingface_hub import HfApi
           import json
           api = HfApi()
           api.upload_file(
-              path_or_fileobj=json.dumps({'stop': True, 'restart': True, 'timestamp': '$(date -Iseconds)'}).encode(),
+              path_or_fileobj=json.dumps({'stop': True, 'restart': True, 'timestamp': '$TIMESTAMP'}).encode(),
               path_in_repo='stop.json',
               repo_id='$DATASET',
               repo_type='dataset',
@@ -561,8 +563,9 @@ jobs:
           DATASET="${{ env.HF_DATASET }}"
           PACK_TIME="${{ env.PACK_TIME }}"
 
-          # 安装 huggingface_hub
-          pip install --user huggingface_hub -q
+          # 安装 huggingface_hub（修复权限问题）
+          sudo chown -R runner:runner /home/runner/.local /home/runner/.cache 2>/dev/null || true
+          python3 -m pip install --user huggingface_hub -q
 
           echo "============================================="
           echo "📤 开始上传备份..."
@@ -681,7 +684,8 @@ jobs:
       - name: 重置停止信号
         if: steps.check.outputs.need_reset == 'true'
         run: |
-          pip install --user huggingface_hub -q
+          sudo chown -R runner:runner /home/runner/.local /home/runner/.cache 2>/dev/null || true
+          python3 -m pip install --user huggingface_hub -q
           python3 -c "
           from huggingface_hub import HfApi
           import json
