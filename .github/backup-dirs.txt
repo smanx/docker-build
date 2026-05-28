@@ -7,3 +7,4 @@
 /root/mydata
 /var/lib/docker
 /root/.config
+/root/.hermes
