@@ -10,23 +10,26 @@ echo "[start-loop.sh] 启动开始"
 echo "[start-loop.sh] 当前目录: $(pwd)"
 echo "[start-loop.sh] 当前用户: $(id -un) (uid=$(id -u))"
 
-echo "0=$0"
-echo "PID=$$ PPID=$PPID"
-echo "SHELL环境变量=$SHELL"
-ps -p $$ -o pid=,ppid=,comm=,args=
+# ========== 环境变量配置 ==========
+DISABLE_TTYD=${DISABLE_TTYD:-}
+DISABLE_TAILSCALE=${DISABLE_TAILSCALE:-}
+DISABLE_CLOUDFLARED=${DISABLE_CLOUDFLARED:-}
 
-. /root/.bashrc
-. /root/.profile
+TTYD_USER=${TTYD_USER:-admin}
+TTYD_PASS=${TTYD_PASS:-zc123456}
+TTYD_PORT=${TTYD_PORT:-7681}
+# ==================================
+
+# 添加 snap 路径到 PATH
+export PATH="/snap/bin:$PATH"
 
 # ========== 耗时统计函数 ==========
 SCRIPT_START_TIME=$(date +%s)
 
-# 记录步骤开始时间
 step_start() {
     STEP_START_TIME=$(date +%s)
 }
 
-# 打印步骤耗时
 step_end() {
     local step_name="$1"
     local step_end_time=$(date +%s)
@@ -40,7 +43,6 @@ step_end() {
     fi
 }
 
-# 打印总耗时
 total_time() {
     local total_end_time=$(date +%s)
     local duration=$((total_end_time - SCRIPT_START_TIME))
@@ -51,138 +53,123 @@ total_time() {
     echo "══════════════════════════════════════════════════"
 }
 
-# 确保脚本退出时打印总耗时
 trap total_time EXIT
 # ====================================
 
-# 添加 snap 路径到 PATH
-export PATH="/snap/bin:$PATH"
-
-# ========== ttyd Basic Auth (写死) ==========
-TTYD_USER="admin"
-TTYD_PASS="zc123456"
-# ==========================================
-
-# 设置系统主机名
+# ========== 设置主机名 ==========
 step_start
 if [ -n "$HOSTNAME" ]; then
     echo "设置主机名: $HOSTNAME"
     sudo hostnamectl set-hostname "$HOSTNAME"
-    # 更新 /etc/hosts
     sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$HOSTNAME/" /etc/hosts 2>/dev/null || true
     echo "✓ 主机名已设置为: $(hostname)"
 fi
 step_end "设置主机名"
+# ====================================
 
 # 确保 ~/.local/bin 在 PATH 中
 export PATH="$HOME/.local/bin:$PATH"
 
-echo "正在安装 ttyd、Cloudflared、Tailscale..."
-
-# 安装 ttyd（snap 依赖）
-step_start
-echo ">>> [1/3] 安装 ttyd (apt update + snapd + tmux + ttyd)"
-sudo apt update -y
-sudo apt install snapd tmux -y
-sudo snap install ttyd --classic
-step_end "安装 ttyd"
-
-# 验证 ttyd 是否可用
-if ! command -v ttyd &> /dev/null; then
-    # 尝试使用完整路径
-    if [ -x /snap/bin/ttyd ]; then
-        TTYD_CMD="/snap/bin/ttyd"
-        echo "✓ ttyd 已安装: $TTYD_CMD"
-    else
-        echo "✗ ttyd 安装失败"
+# ========== TTYD 安装和启动 ==========
+setup_ttyd() {
+    if [ "$DISABLE_TTYD" = "true" ]; then
+        echo "⏭️  TTYD 已禁用 (DISABLE_TTYD=$DISABLE_TTYD)"
+        return 0
     fi
-else
-    TTYD_CMD="ttyd"
+
+    step_start
+    echo ">>> 安装并启动 ttyd"
+
+    # 安装
+    echo "安装 ttyd..."
+    sudo apt update -y > /dev/null 2>&1
+    sudo apt install snapd tmux -y > /dev/null 2>&1
+    sudo snap install ttyd --classic > /dev/null 2>&1
+
+    TTYD_CMD=""
+    if ! command -v ttyd &> /dev/null; then
+        if [ -x /snap/bin/ttyd ]; then
+            TTYD_CMD="/snap/bin/ttyd"
+        else
+            echo "✗ ttyd 安装失败"
+            step_end "安装并启动 ttyd"
+            return 1
+        fi
+    else
+        TTYD_CMD="ttyd"
+    fi
     echo "✓ ttyd 已安装"
-fi
 
-# 并行安装 Tailscale 和 Cloudflared
-step_start
-echo ">>> [2/3] 并行安装 Tailscale 和 Cloudflared..."
+    # 停止可能存在的进程
+    pkill -f ttyd 2>/dev/null || true
+    sleep 1
 
-# 后台安装 Tailscale
-(
-  if ! command -v tailscale &> /dev/null; then
-    curl -fsSL https://tailscale.com/install.sh | sh
-    echo "done" > /tmp/ts-install.done
-  else
-    echo "done" > /tmp/ts-install.done
-  fi
-) &
-TS_PID=$!
+    # 启动
+    $TTYD_CMD -p $TTYD_PORT -W -c "$TTYD_USER:$TTYD_PASS" bash &
+    TTYD_PID=$!
 
-# 后台安装 Cloudflared
-(
-  if ! command -v cloudflared &> /dev/null; then
-    ARCH=$(uname -m)
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-      wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-arm64 -O /tmp/cloudflared
+    # 等待端口就绪
+    for i in $(seq 1 10); do
+      if netstat -tuln 2>/dev/null | grep -q ":$TTYD_PORT" || ss -tuln 2>/dev/null | grep -q ":$TTYD_PORT"; then
+        echo "✓ ttyd 端口 $TTYD_PORT 就绪"
+        break
+      fi
+      sleep 1
+    done
+
+    if ps -p $TTYD_PID > /dev/null; then
+        echo "✓ ttyd 启动成功 (PID: $TTYD_PID, 端口: $TTYD_PORT)"
+        echo "  用户: $TTYD_USER"
+        echo $TTYD_PID > ttyd.pid
     else
-      wget -q https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-amd64 -O /tmp/cloudflared
+        echo "✗ ttyd 启动失败"
+        step_end "安装并启动 ttyd"
+        return 1
     fi
-    chmod +x /tmp/cloudflared
-    sudo mv /tmp/cloudflared /usr/local/bin/
-    echo "done" > /tmp/cf-install.done
-  else
-    echo "done" > /tmp/cf-install.done
-  fi
-) &
-CF_PID=$!
 
-# 等待两个安装完成
-wait $TS_PID $CF_PID
-step_end "并行安装 Tailscale/Cloudflared"
+    step_end "安装并启动 ttyd"
+}
+# ====================================
 
-# 检查安装结果
-echo "检查安装结果..."
-if command -v tailscale &> /dev/null; then
-    echo "✓ Tailscale 安装成功"
-else
-    echo "⚠ Tailscale 安装失败"
-fi
+# ========== Tailscale 安装和启动 ==========
+setup_tailscale() {
+    if [ "$DISABLE_TAILSCALE" = "true" ]; then
+        echo "⏭️  Tailscale 已禁用 (DISABLE_TAILSCALE=$DISABLE_TAILSCALE)"
+        return 0
+    fi
 
-if command -v cloudflared &> /dev/null; then
-    echo "✓ Cloudflared 安装成功"
-else
-    echo "⚠ Cloudflared 安装失败"
-fi
+    step_start
+    echo ">>> 安装并启动 Tailscale"
 
-echo "✓ 所有安装完成"
+    # 安装
+    echo "安装 Tailscale..."
+    if ! command -v tailscale &> /dev/null; then
+        curl -fsSL https://tailscale.com/install.sh | sh > /dev/null 2>&1
+    fi
 
-# 停止可能存在的进程
-pkill -f ttyd 2>/dev/null || true
-pkill -f cloudflared 2>/dev/null || true
+    if ! command -v tailscale &> /dev/null; then
+        echo "✗ Tailscale 安装失败"
+        step_end "安装并启动 Tailscale"
+        return 1
+    fi
+    echo "✓ Tailscale 已安装"
 
-# 连接 Tailscale（手动登录）
-step_start
-echo ">>> 启动 Tailscale"
-if ! command -v tailscale &> /dev/null; then
-    echo "⚠ Tailscale 未安装，跳过"
-else
-    echo "正在启动 Tailscale..."
-
-    # 彻底清理 tailscaled 相关进程和资源
+    # 清理旧进程
     sudo systemctl stop tailscaled 2>/dev/null || true
     sudo pkill -9 -x tailscaled 2>/dev/null || true
     sudo ip link delete tailscale0 2>/dev/null || true
     sudo rm -f /var/run/tailscale/tailscaled.sock 2>/dev/null || true
     sleep 2
 
-    # 使用 systemd 启动（如果可用）
+    # 启动 tailscaled
     if sudo systemctl start tailscaled 2>/dev/null; then
-        echo "✓ 使用 systemd 启动 tailscaled"
+        echo "✓ tailscaled 已启动"
     else
-        # 回退到手动启动
         echo "手动启动 tailscaled..."
         sudo tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock 2>/tmp/tailscaled.log &
     fi
 
-    # 等待 socket 就绪（最多 10 秒）
+    # 等待 socket 就绪
     for i in $(seq 1 10); do
       if [ -S /var/run/tailscale/tailscaled.sock ]; then
         echo "✓ tailscaled socket 就绪"
@@ -190,12 +177,6 @@ else
       fi
       sleep 1
     done
-
-    # 检查 tailscaled 是否运行
-    if ! pgrep -x tailscaled > /dev/null; then
-        echo "✗ tailscaled 启动失败"
-        cat /tmp/tailscaled.log 2>/dev/null || true
-    fi
 
     # 检查是否已连接
     TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "")
@@ -206,13 +187,9 @@ else
         echo "  主机名: $TAILSCALE_HOSTNAME"
         echo "  SSH: ssh $TAILSCALE_IP 或 ssh $TAILSCALE_HOSTNAME"
     else
-        # 后台运行 tailscale up，监控链接并打印
-        echo "⏳ Tailscale 正在后台获取登录链接..."
+        echo "⏳ Tailscale 正在登录..."
         (
             sudo tailscale up --ssh 2>&1 | tee /tmp/tailscale-up.log &
-            TAILSCALE_PID=$!
-            
-            # 监控日志文件，有链接就打印
             for i in $(seq 1 30); do
                 if [ -f /tmp/tailscale-up.log ]; then
                     LOGIN_URL=$(grep -oE 'https://login\.tailscale\.com/[a-zA-Z0-9]+' /tmp/tailscale-up.log 2>/dev/null | head -1)
@@ -230,8 +207,7 @@ else
                 fi
                 sleep 1
             done
-            
-            # 等待登录完成
+
             for i in $(seq 1 60); do
                 TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "")
                 if [ -n "$TAILSCALE_IP" ]; then
@@ -247,138 +223,145 @@ else
             done
         ) &
     fi
-fi
-step_end "启动 Tailscale"
 
-# 启动 ttyd（关键：-W 允许写入，直接运行 bash；-c 开启 Basic Auth）
-step_start
-echo ">>> 启动 ttyd"
-if [ -z "$TTYD_CMD" ]; then
-    echo "✗ ttyd 未安装，跳过"
-    exit 1
-fi
-$TTYD_CMD -p 7681 -W -c "$TTYD_USER:$TTYD_PASS" bash &
-TTYD_PID=$!
+    step_end "安装并启动 Tailscale"
+}
+# ====================================
 
-# 等待端口就绪（最多 5 秒）
-for i in $(seq 1 5); do
-  if netstat -tuln | grep -q ":7681"; then
-    echo "✓ ttyd 端口就绪"
-    break
-  fi
-  sleep 1
-done
-
-# 检查 ttyd 是否运行
-if ps -p $TTYD_PID > /dev/null; then
-    echo "✓ ttyd 启动成功 (PID: $TTYD_PID)"
-else
-    echo "✗ ttyd 启动失败，尝试重新启动..."
-    $TTYD_CMD -p 7681 -W -c "$TTYD_USER:$TTYD_PASS" bash &
-    TTYD_PID=$!
-fi
-
-# 检查端口
-if netstat -tuln | grep -q ":7681"; then
-    echo "✓ ttyd 正在监听端口 7681"
-else
-    echo "✗ ttyd 未监听端口 7681"
-    exit 1
-fi
-step_end "启动 ttyd"
-
-# 启动 Cloudflared 隧道
-step_start
-echo ">>> 启动 Cloudflared 隧道"
-if [ -n "$CF_TUNNEL_TOKEN" ]; then
-    echo "使用 Cloudflare 固定隧道..."
-    nohup cloudflared tunnel run --token "$CF_TUNNEL_TOKEN" > cloudflared.log 2>&1 &
-    CLOUDFLARED_PID=$!
-
-    # 等待进程启动（最多 5 秒）
-    for i in $(seq 1 5); do
-      if ps -p $CLOUDFLARED_PID > /dev/null; then
-        echo "✓ 固定隧道进程启动 (PID: $CLOUDFLARED_PID)"
-        break
-      fi
-      sleep 1
-    done
-
-    if ! ps -p $CLOUDFLARED_PID > /dev/null; then
-        echo "✗ 固定隧道启动失败，请检查 Token"
-        cat cloudflared.log
+# ========== Cloudflared 安装和启动 ==========
+setup_cloudflared() {
+    if [ "$DISABLE_CLOUDFLARED" = "true" ]; then
+        echo "⏭️  Cloudflared 已禁用 (DISABLE_CLOUDFLARED=$DISABLE_CLOUDFLARED)"
+        return 0
     fi
-    echo $CLOUDFLARED_PID > cloudflared.pid
-else
-    # 使用临时隧道（每次 URL 会变）
-    echo "使用 Cloudflare 临时隧道..."
-    nohup cloudflared tunnel --url http://localhost:7681 > cloudflared-ttyd.log 2>&1 &
-    CLOUDFLARED_TTYD_PID=$!
-fi
-step_end "启动 Cloudflared 隧道"
 
-# 获取 URL（仅临时隧道需要）
-if [ -z "$CF_TUNNEL_TOKEN" ]; then
-    # 获取 ttyd 公共 URL（最多等待 20 秒）
-    TTYD_URL=""
-    for i in $(seq 1 20); do
-        if [ -f cloudflared-ttyd.log ]; then
-            TTYD_URL=$(grep -o "https://[a-zA-Z0-9.-]*\.trycloudflare\.com" cloudflared-ttyd.log | head -1)
-            if [ -n "$TTYD_URL" ]; then
-                echo "✓ 隧道 URL 已生成"
-                break
-            fi
+    step_start
+    echo ">>> 安装并启动 Cloudflared"
+
+    # 安装
+    echo "安装 Cloudflared..."
+    if ! command -v cloudflared &> /dev/null; then
+        ARCH=$(uname -m)
+        if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+            DOWNLOAD_URL="https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-arm64"
+        else
+            DOWNLOAD_URL="https://github.com/cloudflare/cloudflared/releases/download/2025.10.1/cloudflared-linux-amd64"
         fi
-        sleep 1
-    done
-fi
+        wget -q "$DOWNLOAD_URL" -O /tmp/cloudflared
+        chmod +x /tmp/cloudflared
+        sudo mv /tmp/cloudflared /usr/local/bin/cloudflared
+    fi
+
+    if ! command -v cloudflared &> /dev/null; then
+        echo "✗ Cloudflared 安装失败"
+        step_end "安装并启动 Cloudflared"
+        return 1
+    fi
+    echo "✓ Cloudflared 已安装"
+
+    # 停止可能存在的进程
+    pkill -f cloudflared 2>/dev/null || true
+
+    # 启动
+    if [ -n "$CF_TUNNEL_TOKEN" ]; then
+        echo "使用 Cloudflare 固定隧道..."
+        nohup cloudflared tunnel run --token "$CF_TUNNEL_TOKEN" > cloudflared.log 2>&1 &
+        CLOUDFLARED_PID=$!
+
+        for i in $(seq 1 10); do
+          if ps -p $CLOUDFLARED_PID > /dev/null; then
+            echo "✓ 固定隧道进程启动 (PID: $CLOUDFLARED_PID)"
+            echo $CLOUDFLARED_PID > cloudflared.pid
+            break
+          fi
+          sleep 1
+        done
+
+        if ! ps -p $CLOUDFLARED_PID > /dev/null; then
+            echo "✗ 固定隧道启动失败"
+            cat cloudflared.log 2>/dev/null
+        fi
+    else
+        echo "使用 Cloudflare 临时隧道..."
+        nohup cloudflared tunnel --url http://localhost:$TTYD_PORT > cloudflared-ttyd.log 2>&1 &
+        CLOUDFLARED_PID=$!
+
+        # 获取 URL
+        TTYD_URL=""
+        for i in $(seq 1 30); do
+            if [ -f cloudflared-ttyd.log ]; then
+                TTYD_URL=$(grep -o "https://[a-zA-Z0-9.-]*\.trycloudflare\.com" cloudflared-ttyd.log | head -1)
+                if [ -n "$TTYD_URL" ]; then
+                    echo "✓ 临时隧道 URL: $TTYD_URL"
+                    echo $CLOUDFLARED_PID > cloudflared-ttyd.pid
+                    break
+                fi
+            fi
+            sleep 1
+        done
+
+        if [ -z "$TTYD_URL" ]; then
+            echo "⚠ 临时隧道 URL 获取超时，请查看: cat cloudflared-ttyd.log"
+        fi
+    fi
+
+    step_end "安装并启动 Cloudflared"
+}
+# ====================================
+
+# ========== 主流程 ==========
+echo ""
+echo "============================================="
+echo "配置信息"
+echo "============================================="
+echo "DISABLE_TTYD=$DISABLE_TTYD (端口: $TTYD_PORT)"
+echo "DISABLE_TAILSCALE=$DISABLE_TAILSCALE"
+echo "DISABLE_CLOUDFLARED=$DISABLE_CLOUDFLARED"
+echo "============================================="
+
+setup_tailscale
+setup_ttyd
+setup_cloudflared
 
 # 显示访问信息
-IP=$(hostname -I | awk '{print $1}')
-TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "")
-TAILSCALE_HOSTNAME=$(tailscale status --json 2>/dev/null | grep -o '"HostName":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
-
 echo ""
 echo "=================================================="
 echo "安装完成！"
 echo "=================================================="
 
-# Tailscale 信息
-if [ -n "$TAILSCALE_IP" ]; then
-    echo "【Tailscale SSH】"
-    echo "  IP: $TAILSCALE_IP"
-    echo "  主机名: $TAILSCALE_HOSTNAME"
-    echo "  连接命令: ssh $TAILSCALE_IP"
-    echo ""
-fi
+IP=$(hostname -I | awk '{print $1}')
 
-if [ -n "$CF_TUNNEL_TOKEN" ]; then
-    echo "【固定隧道模式】"
-    echo "  请在 Cloudflare 控制台配置域名路由："
-    echo "  ttyd.yourdomain.com   -> http://localhost:7681"
+if [ "$DISABLE_TTYD" != "true" ]; then
     echo ""
     echo "【ttyd 终端】"
-    echo "  本地访问: http://$IP:7681"
-else
-    echo "【ttyd 终端】"
-    echo "  本地访问: http://$IP:7681"
+    echo "  本地访问: http://$IP:$TTYD_PORT"
     if [ -n "$TTYD_URL" ]; then
         echo "  外网访问: $TTYD_URL"
-    else
-        echo "  外网访问: 正在生成... (查看: cat cloudflared-ttyd.log)"
     fi
 fi
-echo "=================================================="
 
-# 保存进程信息
-echo $TTYD_PID > ttyd.pid
-if [ -n "$CF_TUNNEL_TOKEN" ]; then
-    echo $CLOUDFLARED_PID > cloudflared.pid
-else
-    echo $CLOUDFLARED_TTYD_PID > cloudflared-ttyd.pid
+if [ "$DISABLE_TAILSCALE" != "true" ]; then
+    TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "")
+    if [ -n "$TAILSCALE_IP" ]; then
+        TAILSCALE_HOSTNAME=$(tailscale status --json 2>/dev/null | grep -o '"HostName":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
+        echo ""
+        echo "【Tailscale SSH】"
+        echo "  IP: $TAILSCALE_IP"
+        echo "  主机名: $TAILSCALE_HOSTNAME"
+        echo "  连接: ssh $TAILSCALE_IP"
+    fi
 fi
 
-# 可选：执行自定义启动脚本
+if [ "$DISABLE_CLOUDFLARED" != "true" ] && [ -n "$CF_TUNNEL_TOKEN" ]; then
+    echo ""
+    echo "【固定隧道模式】"
+    echo "  请在 Cloudflare 控制台配置域名路由："
+    echo "  ttyd.yourdomain.com -> http://localhost:$TTYD_PORT"
+fi
+
+echo "=================================================="
+
+# 自定义启动脚本
 step_start
 CUSTOM_START="/root/mydata/start.sh"
 if [ -f "$CUSTOM_START" ]; then
