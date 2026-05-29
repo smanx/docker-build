@@ -77,11 +77,9 @@ setup_ttyd() {
         return 0
     fi
 
-    step_start
-    echo ">>> 安装并启动 ttyd"
+    echo "[ttyd] 安装并启动..."
 
     # 安装
-    echo "安装 ttyd..."
     sudo apt update -y > /dev/null 2>&1
     sudo apt install snapd tmux -y > /dev/null 2>&1
     sudo snap install ttyd --classic > /dev/null 2>&1
@@ -91,14 +89,13 @@ setup_ttyd() {
         if [ -x /snap/bin/ttyd ]; then
             TTYD_CMD="/snap/bin/ttyd"
         else
-            echo "✗ ttyd 安装失败"
-            step_end "安装并启动 ttyd"
+            echo "[ttyd] ✗ 安装失败"
             return 1
         fi
     else
         TTYD_CMD="ttyd"
     fi
-    echo "✓ ttyd 已安装"
+    echo "[ttyd] ✓ 已安装"
 
     # 停止可能存在的进程
     pkill -f ttyd 2>/dev/null || true
@@ -111,23 +108,20 @@ setup_ttyd() {
     # 等待端口就绪
     for i in $(seq 1 10); do
       if netstat -tuln 2>/dev/null | grep -q ":$TTYD_PORT" || ss -tuln 2>/dev/null | grep -q ":$TTYD_PORT"; then
-        echo "✓ ttyd 端口 $TTYD_PORT 就绪"
+        echo "[ttyd] ✓ 端口 $TTYD_PORT 就绪"
         break
       fi
       sleep 1
     done
 
     if ps -p $TTYD_PID > /dev/null; then
-        echo "✓ ttyd 启动成功 (PID: $TTYD_PID, 端口: $TTYD_PORT)"
+        echo "[ttyd] ✓ 启动成功 (PID: $TTYD_PID, 端口: $TTYD_PORT)"
         echo "  用户: $TTYD_USER"
         echo $TTYD_PID > ttyd.pid
     else
-        echo "✗ ttyd 启动失败"
-        step_end "安装并启动 ttyd"
+        echo "[ttyd] ✗ 启动失败"
         return 1
     fi
-
-    step_end "安装并启动 ttyd"
 }
 # ====================================
 
@@ -138,21 +132,18 @@ setup_tailscale() {
         return 0
     fi
 
-    step_start
-    echo ">>> 安装并启动 Tailscale"
+    echo "[tailscale] 安装并启动..."
 
     # 安装
-    echo "安装 Tailscale..."
     if ! command -v tailscale &> /dev/null; then
         curl -fsSL https://tailscale.com/install.sh | sh > /dev/null 2>&1
     fi
 
     if ! command -v tailscale &> /dev/null; then
-        echo "✗ Tailscale 安装失败"
-        step_end "安装并启动 Tailscale"
+        echo "[tailscale] ✗ 安装失败"
         return 1
     fi
-    echo "✓ Tailscale 已安装"
+    echo "[tailscale] ✓ 已安装"
 
     # 清理旧进程
     sudo systemctl stop tailscaled 2>/dev/null || true
@@ -163,16 +154,16 @@ setup_tailscale() {
 
     # 启动 tailscaled
     if sudo systemctl start tailscaled 2>/dev/null; then
-        echo "✓ tailscaled 已启动"
+        echo "[tailscale] ✓ tailscaled 已启动"
     else
-        echo "手动启动 tailscaled..."
+        echo "[tailscale] 手动启动 tailscaled..."
         sudo tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock 2>/tmp/tailscaled.log &
     fi
 
     # 等待 socket 就绪
     for i in $(seq 1 10); do
       if [ -S /var/run/tailscale/tailscaled.sock ]; then
-        echo "✓ tailscaled socket 就绪"
+        echo "[tailscale] ✓ socket 就绪"
         break
       fi
       sleep 1
@@ -182,12 +173,11 @@ setup_tailscale() {
     TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "")
     if [ -n "$TAILSCALE_IP" ]; then
         TAILSCALE_HOSTNAME=$(tailscale status --json 2>/dev/null | grep -o '"HostName":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
-        echo "✓ Tailscale 已连接"
+        echo "[tailscale] ✓ 已连接"
         echo "  IP: $TAILSCALE_IP"
         echo "  主机名: $TAILSCALE_HOSTNAME"
-        echo "  SSH: ssh $TAILSCALE_IP 或 ssh $TAILSCALE_HOSTNAME"
     else
-        echo "⏳ Tailscale 正在登录..."
+        echo "[tailscale] ⏳ 等待登录..."
         (
             sudo tailscale up --ssh 2>&1 | tee /tmp/tailscale-up.log &
             for i in $(seq 1 30); do
@@ -199,8 +189,7 @@ setup_tailscale() {
                     if [ -n "$LOGIN_URL" ]; then
                         echo ""
                         echo "============================================="
-                        echo "🔗 Tailscale 登录链接："
-                        echo "   $LOGIN_URL"
+                        echo "[tailscale] 🔗 登录链接: $LOGIN_URL"
                         echo "============================================="
                         break
                     fi
@@ -212,19 +201,15 @@ setup_tailscale() {
                 TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "")
                 if [ -n "$TAILSCALE_IP" ]; then
                     TAILSCALE_HOSTNAME=$(tailscale status --json 2>/dev/null | grep -o '"HostName":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
-                    echo ""
-                    echo "✓ Tailscale 登录成功"
+                    echo "[tailscale] ✓ 登录成功"
                     echo "  IP: $TAILSCALE_IP"
                     echo "  主机名: $TAILSCALE_HOSTNAME"
-                    echo "  SSH: ssh $TAILSCALE_IP 或 ssh $TAILSCALE_HOSTNAME"
                     break
                 fi
                 sleep 5
             done
         ) &
     fi
-
-    step_end "安装并启动 Tailscale"
 }
 # ====================================
 
@@ -235,11 +220,9 @@ setup_cloudflared() {
         return 0
     fi
 
-    step_start
-    echo ">>> 安装并启动 Cloudflared"
+    echo "[cloudflared] 安装并启动..."
 
     # 安装
-    echo "安装 Cloudflared..."
     if ! command -v cloudflared &> /dev/null; then
         ARCH=$(uname -m)
         if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
@@ -253,24 +236,23 @@ setup_cloudflared() {
     fi
 
     if ! command -v cloudflared &> /dev/null; then
-        echo "✗ Cloudflared 安装失败"
-        step_end "安装并启动 Cloudflared"
+        echo "[cloudflared] ✗ 安装失败"
         return 1
     fi
-    echo "✓ Cloudflared 已安装"
+    echo "[cloudflared] ✓ 已安装"
 
     # 停止可能存在的进程
     pkill -f cloudflared 2>/dev/null || true
 
     # 启动
     if [ -n "$CF_TUNNEL_TOKEN" ]; then
-        echo "使用 Cloudflare 固定隧道..."
+        echo "[cloudflared] 使用固定隧道..."
         nohup cloudflared tunnel run --token "$CF_TUNNEL_TOKEN" > cloudflared.log 2>&1 &
         CLOUDFLARED_PID=$!
 
         for i in $(seq 1 10); do
           if ps -p $CLOUDFLARED_PID > /dev/null; then
-            echo "✓ 固定隧道进程启动 (PID: $CLOUDFLARED_PID)"
+            echo "[cloudflared] ✓ 固定隧道启动 (PID: $CLOUDFLARED_PID)"
             echo $CLOUDFLARED_PID > cloudflared.pid
             break
           fi
@@ -278,34 +260,25 @@ setup_cloudflared() {
         done
 
         if ! ps -p $CLOUDFLARED_PID > /dev/null; then
-            echo "✗ 固定隧道启动失败"
-            cat cloudflared.log 2>/dev/null
+            echo "[cloudflared] ✗ 固定隧道启动失败"
         fi
     else
-        echo "使用 Cloudflare 临时隧道..."
+        echo "[cloudflared] 使用临时隧道..."
         nohup cloudflared tunnel --url http://localhost:$TTYD_PORT > cloudflared-ttyd.log 2>&1 &
         CLOUDFLARED_PID=$!
 
-        # 获取 URL
-        TTYD_URL=""
         for i in $(seq 1 30); do
             if [ -f cloudflared-ttyd.log ]; then
                 TTYD_URL=$(grep -o "https://[a-zA-Z0-9.-]*\.trycloudflare\.com" cloudflared-ttyd.log | head -1)
                 if [ -n "$TTYD_URL" ]; then
-                    echo "✓ 临时隧道 URL: $TTYD_URL"
+                    echo "[cloudflared] ✓ 临时隧道: $TTYD_URL"
                     echo $CLOUDFLARED_PID > cloudflared-ttyd.pid
                     break
                 fi
             fi
             sleep 1
         done
-
-        if [ -z "$TTYD_URL" ]; then
-            echo "⚠ 临时隧道 URL 获取超时，请查看: cat cloudflared-ttyd.log"
-        fi
     fi
-
-    step_end "安装并启动 Cloudflared"
 }
 # ====================================
 
@@ -319,9 +292,30 @@ echo "DISABLE_TAILSCALE=$DISABLE_TAILSCALE"
 echo "DISABLE_CLOUDFLARED=$DISABLE_CLOUDFLARED"
 echo "============================================="
 
-setup_tailscale
-setup_ttyd
-setup_cloudflared
+step_start
+echo ""
+echo ">>> 并行安装并启动服务..."
+echo ""
+
+# 并行执行
+setup_tailscale &
+setup_ttyd &
+setup_cloudflared &
+
+# 等待所有任务完成
+wait
+
+step_end "并行安装并启动服务"
+
+# 打印服务启动总耗时
+SERVICE_END=$(date +%s)
+SERVICE_DURATION=$((SERVICE_END - SCRIPT_START_TIME))
+SERVICE_MINS=$((SERVICE_DURATION / 60))
+SERVICE_SECS=$((SERVICE_DURATION % 60))
+echo ""
+echo "══════════════════════════════════════════════════"
+echo "📋 服务启动总耗时: ${SERVICE_MINS}分${SERVICE_SECS}秒"
+echo "══════════════════════════════════════════════════"
 
 # 显示访问信息
 echo ""
