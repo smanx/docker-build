@@ -297,13 +297,16 @@ echo ""
 echo ">>> 并行安装并启动服务..."
 echo ""
 
-# 并行执行
-setup_tailscale &
-setup_ttyd &
-setup_cloudflared &
+# Tailscale 需要串行安装（安装脚本可能有交互）
+setup_tailscale
 
-# 等待所有任务完成
-wait
+# ttyd 和 cloudflared 可以并行
+setup_ttyd &
+PID_TTYD=$!
+setup_cloudflared &
+PID_CF=$!
+
+wait $PID_TTYD $PID_CF
 
 step_end "并行安装并启动服务"
 
