@@ -359,15 +359,4 @@ fi
 echo "=================================================="
 
 # 自定义启动脚本
-step_start
-CUSTOM_START="/root/mydata/start.sh"
-if [ -f "$CUSTOM_START" ]; then
-    echo ""
-    echo "检测到自定义启动脚本: $CUSTOM_START"
-    if [ -x "$CUSTOM_START" ]; then
-        "$CUSTOM_START" || echo "⚠ 自定义启动脚本执行失败: $CUSTOM_START"
-    else
-        bash "$CUSTOM_START" || echo "⚠ 自定义启动脚本执行失败: $CUSTOM_START"
-    fi
-fi
-step_end "自定义启动脚本"
+
