@@ -80,28 +80,27 @@ pkill -f cloudflared 2>/dev/null || true
 
 echo ">>> 启动并行服务..."
 
-# 启动 Tailscale（后台，不阻塞）
-(
-    if command -v tailscale &>/dev/null; then
-        sudo systemctl stop tailscaled 2>/dev/null || true
-        sudo pkill -9 -x tailscaled 2>/dev/null || true
-        sleep 1
+# 启动 Tailscale
+if command -v tailscale &>/dev/null; then
+    echo ">>> 启动 Tailscale..."
+    sudo systemctl stop tailscaled 2>/dev/null || true
+    sudo pkill -9 -x tailscaled 2>/dev/null || true
+    sleep 1
 
-        if sudo systemctl start tailscaled 2>/dev/null; then
-            sleep 3
-            TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "")
-            if [ -z "$TAILSCALE_IP" ]; then
-                echo "⏳ Tailscale 正在后台连接..."
-                (sudo tailscale up --ssh 2>&1 | grep -oE 'https://login\.tailscale[^ ]*' | head -1 &
-                sleep 30
-                TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "")
-                [ -n "$TAILSCALE_IP" ] && echo "✅ Tailscale 已连接: $TAILSCALE_IP") &
-            else
-                echo "✅ Tailscale 已连接: $TAILSCALE_IP"
-            fi
-        fi
+    # 使用 nohup 确保 Tailscale 持续运行
+    nohup sudo tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock > /tmp/tailscaled.log 2>&1 &
+    sleep 3
+
+    TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "")
+    if [ -z "$TAILSCALE_IP" ]; then
+        echo "⏳ Tailscale 正在后台连接..."
+        # 后台执行登录，不阻塞
+        (sudo tailscale up --ssh 2>&1 &
+        sleep 60) &
+    else
+        echo "✅ Tailscale 已连接: $TAILSCALE_IP"
     fi
-) &
+fi
 
 # 启动 ttyd
 TTYD_CMD="ttyd"
