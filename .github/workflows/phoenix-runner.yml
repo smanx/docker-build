@@ -56,16 +56,30 @@ jobs:
           TIMESTAMP=$(date -Iseconds)
           python3 -c "
           from huggingface_hub import HfApi
+          from huggingface_hub.errors import HfHubHTTPError
           import json
+          import sys
+
           api = HfApi()
-          api.upload_file(
-              path_or_fileobj=json.dumps({'stop': True, 'restart': False, 'timestamp': '$TIMESTAMP'}).encode(),
-              path_in_repo='stop.json',
-              repo_id='$DATASET',
-              repo_type='dataset',
-              token='$TOKEN'
-          )
-          print('✅ 停止信号已发送')
+          try:
+              api.upload_file(
+                  path_or_fileobj=json.dumps({'stop': True, 'restart': False, 'timestamp': '$TIMESTAMP'}).encode(),
+                  path_in_repo='stop.json',
+                  repo_id='$DATASET',
+                  repo_type='dataset',
+                  token='$TOKEN'
+              )
+              print('✅ 停止信号已发送')
+          except HfHubHTTPError as e:
+              if e.response.status_code == 429:
+                  print('⚠️ 速率限制触发 (429 Too Many Requests)')
+                  headers = e.response.headers
+                  if 'RateLimit' in headers:
+                      print(f'RateLimit: {headers[\"RateLimit\"]}')
+                  if 'RateLimit-Policy' in headers:
+                      print(f'RateLimit-Policy: {headers[\"RateLimit-Policy\"]}')
+                  print(f'响应内容: {e.response.text}')
+              raise
           "
 
           echo "正在运行的实例将在 30 秒内执行备份并退出"
@@ -92,16 +106,30 @@ jobs:
           TIMESTAMP=$(date -Iseconds)
           python3 -c "
           from huggingface_hub import HfApi
+          from huggingface_hub.errors import HfHubHTTPError
           import json
+          import sys
+
           api = HfApi()
-          api.upload_file(
-              path_or_fileobj=json.dumps({'stop': True, 'restart': True, 'timestamp': '$TIMESTAMP'}).encode(),
-              path_in_repo='stop.json',
-              repo_id='$DATASET',
-              repo_type='dataset',
-              token='$TOKEN'
-          )
-          print('✅ 停止信号已发送')
+          try:
+              api.upload_file(
+                  path_or_fileobj=json.dumps({'stop': True, 'restart': True, 'timestamp': '$TIMESTAMP'}).encode(),
+                  path_in_repo='stop.json',
+                  repo_id='$DATASET',
+                  repo_type='dataset',
+                  token='$TOKEN'
+              )
+              print('✅ 停止信号已发送')
+          except HfHubHTTPError as e:
+              if e.response.status_code == 429:
+                  print('⚠️ 速率限制触发 (429 Too Many Requests)')
+                  headers = e.response.headers
+                  if 'RateLimit' in headers:
+                      print(f'RateLimit: {headers[\"RateLimit\"]}')
+                  if 'RateLimit-Policy' in headers:
+                      print(f'RateLimit-Policy: {headers[\"RateLimit-Policy\"]}')
+                  print(f'响应内容: {e.response.text}')
+              raise
           "
 
           echo "正在运行的实例将在 30 秒内执行备份并退出"
@@ -545,6 +573,7 @@ jobs:
           # 使用 Python API 上传（支持大文件分块上传）
           python3 << 'EOF'
           from huggingface_hub import HfApi
+          from huggingface_hub.errors import HfHubHTTPError
           import os
           import json
 
@@ -553,9 +582,32 @@ jobs:
 
           api = HfApi()
 
+          def upload_with_retry(api, path_or_fileobj, path_in_repo, repo_id, repo_type, token, commit_message):
+              """上传文件，遇到 429 时打印速率限制信息"""
+              try:
+                  api.upload_file(
+                      path_or_fileobj=path_or_fileobj,
+                      path_in_repo=path_in_repo,
+                      repo_id=repo_id,
+                      repo_type=repo_type,
+                      token=token,
+                      commit_message=commit_message
+                  )
+              except HfHubHTTPError as e:
+                  if e.response.status_code == 429:
+                      print('⚠️ 速率限制触发 (429 Too Many Requests)')
+                      headers = e.response.headers
+                      if 'RateLimit' in headers:
+                          print(f'RateLimit: {headers["RateLimit"]}')
+                      if 'RateLimit-Policy' in headers:
+                          print(f'RateLimit-Policy: {headers["RateLimit-Policy"]}')
+                      print(f'响应内容: {e.response.text}')
+                  raise
+
           # 上传统份文件（支持 > 5GB）
           print("上传备份文件...")
-          api.upload_file(
+          upload_with_retry(
+              api,
               path_or_fileobj="backup.tar.gz.enc",
               path_in_repo="backup.tar.gz.enc",
               repo_id=dataset,
@@ -566,7 +618,8 @@ jobs:
 
           # 上传停止信号
           stop_data = json.dumps({"stop": False, "restart": False, "timestamp": ""})
-          api.upload_file(
+          upload_with_retry(
+              api,
               path_or_fileobj=stop_data.encode(),
               path_in_repo="stop.json",
               repo_id=dataset,
@@ -658,16 +711,29 @@ jobs:
           python3 -m pip install --user huggingface_hub -q
           python3 -c "
           from huggingface_hub import HfApi
+          from huggingface_hub.errors import HfHubHTTPError
           import json
+
           api = HfApi()
-          api.upload_file(
-              path_or_fileobj=json.dumps({'stop': False, 'restart': False, 'timestamp': '', 'reset_by': 'auto-restart'}).encode(),
-              path_in_repo='stop.json',
-              repo_id='${{ env.HF_DATASET }}',
-              repo_type='dataset',
-              token='${{ env.HF_TOKEN }}'
-          )
-          print('✅ 停止信号已重置')
+          try:
+              api.upload_file(
+                  path_or_fileobj=json.dumps({'stop': False, 'restart': False, 'timestamp': '', 'reset_by': 'auto-restart'}).encode(),
+                  path_in_repo='stop.json',
+                  repo_id='${{ env.HF_DATASET }}',
+                  repo_type='dataset',
+                  token='${{ env.HF_TOKEN }}'
+              )
+              print('✅ 停止信号已重置')
+          except HfHubHTTPError as e:
+              if e.response.status_code == 429:
+                  print('⚠️ 速率限制触发 (429 Too Many Requests)')
+                  headers = e.response.headers
+                  if 'RateLimit' in headers:
+                      print(f'RateLimit: {headers[\"RateLimit\"]}')
+                  if 'RateLimit-Policy' in headers:
+                      print(f'RateLimit-Policy: {headers[\"RateLimit-Policy\"]}')
+                  print(f'响应内容: {e.response.text}')
+              raise
           "
           
       - name: 触发下一次运行
