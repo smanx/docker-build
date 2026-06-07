@@ -369,5 +369,9 @@ if [ -f "$CUSTOM_START" ]; then
     else
         bash "$CUSTOM_START" || echo "⚠ 自定义启动脚本执行失败: $CUSTOM_START"
     fi
+else
+    echo ""
+    echo "未检测到自定义启动脚本: $CUSTOM_START"
+    echo "如需自定义启动命令，请创建该脚本文件"
 fi
 step_end "自定义启动脚本"
