@@ -467,9 +467,10 @@ jobs:
       # =============================================
       - name: 打包所有要备份的目录
         run: |
-          # 清理未使用的 Docker 资源
-          echo "清理未使用的 Docker 资源..."
-          sudo docker system prune -f 2>/dev/null || true
+          # 清理未使用的 Docker 镜像和构建缓存
+          echo "清理未使用的 Docker 镜像和构建缓存..."
+          sudo docker image prune -a -f 2>/dev/null || true
+          sudo docker builder prune -f 2>/dev/null || true
 
           # 停止 Docker 服务
           echo "停止 Docker 服务..."
