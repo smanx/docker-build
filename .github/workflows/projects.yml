@@ -13,7 +13,7 @@ on:
       - run
 
 env:
-  DEFAULT_PROJECTS: 'openclaw,nanobot,open-auto-glm,opencode'
+  DEFAULT_PROJECTS: 'openclaw,nanobot,open-auto-glm,opencode,deepseek-harness'
 
 jobs:
   parse-projects:
