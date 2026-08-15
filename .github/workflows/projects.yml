@@ -38,11 +38,15 @@ jobs:
   build:
     needs: parse-projects
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write        # 新增：允许推送镜像到 GitHub Container Registry
     strategy:
       matrix:
         project: ${{ fromJson(needs.parse-projects.outputs.projects) }}
     env:
       IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.project }}
+      GHCR_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ matrix.project }}   # 新增：GitHub 镜像地址
       REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
       REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
       PROJECT_NAME: ${{ matrix.project }}
@@ -61,6 +65,10 @@ jobs:
       # 登录 DockerHub
       - name: Login to DockerHub
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      # 登录 GitHub Container Registry
+      - name: Login to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       # 构建 Docker 镜像（仅 amd64 平台用于提取 APP_VERSION）
       - name: Build Docker image (amd64 only)
@@ -104,7 +112,7 @@ jobs:
             echo "APP_VERSION not found or invalid, using date: $DATE_TAG"
           fi
 
-      # 构建多平台镜像并推送到 DockerHub
+      # 构建多平台镜像并推送到 DockerHub 和 GitHub Container Registry
       - name: Build and push multi-platform Docker image
         run: |
           VERSION_TAG="${{ steps.version.outputs.version }}"
@@ -114,4 +122,6 @@ jobs:
             --platform linux/amd64,linux/arm64 \
             -t ${{ env.IMAGE_NAME }}:$VERSION_TAG \
             -t ${{ env.IMAGE_NAME }}:latest \
+            -t ${{ env.GHCR_IMAGE_NAME }}:$VERSION_TAG \
+            -t ${{ env.GHCR_IMAGE_NAME }}:latest \
             . --push
