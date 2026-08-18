@@ -127,24 +127,22 @@ jobs:
             . --push
 
           # 变体构建：项目目录存在 .build-variants 时，按其清单多打变体 tag
-          # 每行格式：<tag前缀>|<build-arg 键值对（空格分隔）>，如 devtools|DEV_TOOLS=full
+          # 每行格式：<tag前缀>|<该前缀要安装的 apt 工具列表（空格分隔）>
+          # 构建时传 --build-arg DEV_TOOLS=<前缀>，由 Dockerfile 依据前缀
+          # 从本文件读取工具列表安装（各前缀安装哪些工具在文件里定义）
           # 每个变体推送 4 个 tag：<前缀>-<版本号> / <前缀>-latest（Docker Hub 与 GHCR 各一组）
           # 没有该文件（或为空）时保持原逻辑，不构建变体
           VARIANT_FILE="./.build-variants"
           if [ -f "$VARIANT_FILE" ]; then
-            while IFS='|' read -r PREFIX BUILDARGS || [ -n "$PREFIX" ]; do
-              ARGS=""
-              for kv in $BUILDARGS; do
-                ARGS="$ARGS --build-arg $kv"
-              done
+            while IFS='|' read -r PREFIX TOOLS || [ -n "$PREFIX" ]; do
               docker buildx build \
                 --platform linux/amd64,linux/arm64 \
-                $ARGS \
+                --build-arg DEV_TOOLS=$PREFIX \
                 -t ${{ env.IMAGE_NAME }}:${PREFIX}-$VERSION_TAG \
                 -t ${{ env.IMAGE_NAME }}:${PREFIX}-latest \
                 -t ${{ env.GHCR_IMAGE_NAME }}:${PREFIX}-$VERSION_TAG \
                 -t ${{ env.GHCR_IMAGE_NAME }}:${PREFIX}-latest \
                 . --push
-              echo "✅ 变体构建完成: $PREFIX ($BUILDARGS)"
+              echo "✅ 变体构建完成: $PREFIX ($TOOLS)"
             done < <(grep -vE '^[[:space:]]*(#|$)' "$VARIANT_FILE")
           fi
