@@ -118,13 +118,6 @@ jobs:
           VERSION_TAG="${{ steps.version.outputs.version }}"
           
           cd ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            -t ${{ env.IMAGE_NAME }}:$VERSION_TAG \
-            -t ${{ env.IMAGE_NAME }}:latest \
-            -t ${{ env.GHCR_IMAGE_NAME }}:$VERSION_TAG \
-            -t ${{ env.GHCR_IMAGE_NAME }}:latest \
-            . --push
 
           # 变体构建：项目目录存在 .build-variants 时，按其清单多打变体 tag
           # 每行格式：<tag前缀>|<该前缀要安装的 apt 工具列表（空格分隔）>
@@ -146,3 +139,11 @@ jobs:
               echo "✅ 变体构建完成: $PREFIX ($TOOLS)"
             done < <(grep -vE '^[[:space:]]*(#|$)' "$VARIANT_FILE")
           fi
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            -t ${{ env.IMAGE_NAME }}:$VERSION_TAG \
+            -t ${{ env.IMAGE_NAME }}:latest \
+            -t ${{ env.GHCR_IMAGE_NAME }}:$VERSION_TAG \
+            -t ${{ env.GHCR_IMAGE_NAME }}:latest \
+            . --push
