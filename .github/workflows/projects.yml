@@ -45,8 +45,8 @@ jobs:
       matrix:
         project: ${{ fromJson(needs.parse-projects.outputs.projects) }}
     env:
-      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.project }}
-      GHCR_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ matrix.project }}   # 新增：GitHub 镜像地址
+      # IMAGE_NAME / GHCR_IMAGE_NAME 由下面的 "Resolve image name" 步骤写入
+      # $GITHUB_ENV：镜像仓库名可以被项目目录下的 .image-name 覆盖。
       REPO_URL: ${{ vars.REPO_URL }}        # 新增：仓库URL变量
       REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
       PROJECT_NAME: ${{ matrix.project }}
@@ -57,6 +57,28 @@ jobs:
           REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
         run: |
           git clone https://${{ env.REPO_ACCESS_TOKEN }}@${{ env.REPO_URL}} ${{ env.REPO_PATH }}
+
+      # 镜像仓库名默认就是项目名。项目根目录下如果存在 .image-name 文件，
+      # 就用文件里第一行有效内容（不含 namespace）作为镜像仓库名。
+      # 例：opencode2 目录下的 .image-name 写着 opencode，于是 V2 也推到 smanx/opencode，
+      #     与 V1 共用一个仓库，靠 tag 区分。
+      # 文件不存在、为空、只有注释，或内容不是合法的镜像名时，都回退到项目名。
+      - name: Resolve image name
+        run: |
+          set -euo pipefail
+          IMAGE="${{ matrix.project }}"
+          MARKER="${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}/.image-name"
+          if [ -f "$MARKER" ]; then
+            CUSTOM=$(tr -d '\r' < "$MARKER" | sed -e 's/[[:space:]]//g' -e '/^#/d' -e '/^$/d' | head -1)
+            if printf '%s' "$CUSTOM" | grep -qE '^[a-z0-9]+([._-][a-z0-9]+)*$'; then
+              IMAGE="$CUSTOM"
+            else
+              echo "::warning::.image-name 里没有可用的镜像名（读到 '$CUSTOM'），改用项目名"
+            fi
+          fi
+          echo "project=${{ matrix.project }}  image=$IMAGE"
+          echo "IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/$IMAGE" >> "$GITHUB_ENV"
+          echo "GHCR_IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/$IMAGE" >> "$GITHUB_ENV"
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
@@ -74,14 +96,14 @@ jobs:
       - name: Build Docker image (amd64 only)
         run: |
           cd ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
-          docker build -t ${{ env.IMAGE_NAME }}:build .
+          docker build -t $IMAGE_NAME:build .
 
       # 从镜像中提取 APP_VERSION 环境变量
       - name: Extract APP_VERSION from image
         id: version
         run: |
           # 启动容器
-          CONTAINER_ID=$(docker run -d ${{ env.IMAGE_NAME }}:build sleep 3600)
+          CONTAINER_ID=$(docker run -d $IMAGE_NAME:build sleep 3600)
           
           # 直接复制文件到本地
           docker cp $CONTAINER_ID:/tmp/app_version.env /tmp/app_version.env 2>/dev/null || echo "" > /tmp/app_version.env
@@ -98,7 +120,7 @@ jobs:
           
           # 如果文件中没找到，尝试从环境变量获取
           if [ -z "$APP_VERSION" ]; then
-            APP_VERSION=$(docker run --rm ${{ env.IMAGE_NAME }}:build printenv APP_VERSION 2>/dev/null || echo "")
+            APP_VERSION=$(docker run --rm $IMAGE_NAME:build printenv APP_VERSION 2>/dev/null || echo "")
             echo "Extracted APP_VERSION from env: '$APP_VERSION'"
           fi
           
@@ -131,10 +153,10 @@ jobs:
               docker buildx build \
                 --platform linux/amd64,linux/arm64 \
                 --build-arg DEV_TOOLS=$PREFIX \
-                -t ${{ env.IMAGE_NAME }}:${PREFIX}-$VERSION_TAG \
-                -t ${{ env.IMAGE_NAME }}:${PREFIX}-latest \
-                -t ${{ env.GHCR_IMAGE_NAME }}:${PREFIX}-$VERSION_TAG \
-                -t ${{ env.GHCR_IMAGE_NAME }}:${PREFIX}-latest \
+                -t $IMAGE_NAME:${PREFIX}-$VERSION_TAG \
+                -t $IMAGE_NAME:${PREFIX}-latest \
+                -t $GHCR_IMAGE_NAME:${PREFIX}-$VERSION_TAG \
+                -t $GHCR_IMAGE_NAME:${PREFIX}-latest \
                 . --push
               echo "✅ 变体构建完成: $PREFIX ($TOOLS)"
             done < <(grep -vE '^[[:space:]]*(#|$)' "$VARIANT_FILE")
@@ -142,8 +164,8 @@ jobs:
 
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
-            -t ${{ env.IMAGE_NAME }}:$VERSION_TAG \
-            -t ${{ env.IMAGE_NAME }}:latest \
-            -t ${{ env.GHCR_IMAGE_NAME }}:$VERSION_TAG \
-            -t ${{ env.GHCR_IMAGE_NAME }}:latest \
+            -t $IMAGE_NAME:$VERSION_TAG \
+            -t $IMAGE_NAME:latest \
+            -t $GHCR_IMAGE_NAME:$VERSION_TAG \
+            -t $GHCR_IMAGE_NAME:latest \
             . --push
