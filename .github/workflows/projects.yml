@@ -5,7 +5,7 @@ on:
       projects:
         description: 'Comma-separated project names to build, e.g., "ouben1,ouben2,ouben3"'
         required: false
-        default: 'openclaw,nanobot,open-auto-glm,opencode,deepseek-harness'
+        default: 'openclaw,nanobot,open-auto-glm,opencode,opencode2,deepseek-harness'
   schedule:
     - cron: '0 18 * * *'  # 每天的00:00触发
   push:
@@ -13,7 +13,7 @@ on:
       - run
 
 env:
-  DEFAULT_PROJECTS: 'openclaw,nanobot,open-auto-glm,opencode,deepseek-harness'
+  DEFAULT_PROJECTS: 'openclaw,nanobot,open-auto-glm,opencode,opencode2,deepseek-harness'
 
 jobs:
   parse-projects:
