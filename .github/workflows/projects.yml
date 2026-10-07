@@ -63,11 +63,17 @@ jobs:
       # 例：opencode2 目录下的 .image-name 写着 opencode，于是 V2 也推到 smanx/opencode，
       #     与 V1 共用一个仓库，靠 tag 区分。
       # 文件不存在、为空、只有注释，或内容不是合法的镜像名时，都回退到项目名。
+      #
+      # 项目根目录下如果存在 .no-latest 文件，则该项目的构建不推 :latest tag，
+      # 把 latest 让给同一个镜像仓库的其它项目。opencode/（V1）用它把 latest 让给
+      # opencode2/（V2），这样 latest 的归属不再取决于并发构建谁先谁后。
+      # 只影响基础构建的 :latest；变体的 <前缀>-latest 逻辑保持原样。
       - name: Resolve image name
         run: |
           set -euo pipefail
           IMAGE="${{ matrix.project }}"
-          MARKER="${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}/.image-name"
+          DIR="${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}"
+          MARKER="$DIR/.image-name"
           if [ -f "$MARKER" ]; then
             CUSTOM=$(tr -d '\r' < "$MARKER" | sed -e 's/[[:space:]]//g' -e '/^#/d' -e '/^$/d' | head -1)
             if printf '%s' "$CUSTOM" | grep -qE '^[a-z0-9]+([._-][a-z0-9]+)*$'; then
@@ -76,9 +82,15 @@ jobs:
               echo "::warning::.image-name 里没有可用的镜像名（读到 '$CUSTOM'），改用项目名"
             fi
           fi
-          echo "project=${{ matrix.project }}  image=$IMAGE"
+          if [ -f "$DIR/.no-latest" ]; then
+            SKIP_LATEST=true
+          else
+            SKIP_LATEST=false
+          fi
+          echo "project=${{ matrix.project }}  image=$IMAGE  skip-latest=$SKIP_LATEST"
           echo "IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/$IMAGE" >> "$GITHUB_ENV"
           echo "GHCR_IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/$IMAGE" >> "$GITHUB_ENV"
+          echo "SKIP_LATEST=$SKIP_LATEST" >> "$GITHUB_ENV"
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
@@ -162,10 +174,18 @@ jobs:
             done < <(grep -vE '^[[:space:]]*(#|$)' "$VARIANT_FILE")
           fi
 
+          # 基础构建的 tag。存在 .no-latest 时不推 :latest，把 latest 让给同一仓库的
+          # 其它项目（opencode/ 让给 opencode2/），避免两个 job 并发推同一个 latest。
+          TAGS=(
+            -t "$IMAGE_NAME:$VERSION_TAG"
+            -t "$GHCR_IMAGE_NAME:$VERSION_TAG"
+          )
+          if [ "$SKIP_LATEST" = "true" ]; then
+            echo "跳过 :latest（${{ env.PROJECT_NAME }}/ 存在 .no-latest）"
+          else
+            TAGS+=(-t "$IMAGE_NAME:latest" -t "$GHCR_IMAGE_NAME:latest")
+          fi
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
-            -t $IMAGE_NAME:$VERSION_TAG \
-            -t $IMAGE_NAME:latest \
-            -t $GHCR_IMAGE_NAME:$VERSION_TAG \
-            -t $GHCR_IMAGE_NAME:latest \
+            "${TAGS[@]}" \
             . --push
