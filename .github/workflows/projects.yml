@@ -5,7 +5,7 @@ on:
       projects:
         description: 'Comma-separated project names to build, e.g., "ouben1,ouben2,ouben3"'
         required: false
-        default: 'openclaw,nanobot,open-auto-glm,opencode,deepseek-harness'
+        default: 'openclaw,nanobot,open-auto-glm,opencode,deepseek-harness,zen-gate-package'
       dockerfiles:
         description: '可选。逗号分隔的 Dockerfile，只构建这些；留空则用项目目录里的 .dockerfiles，再留空则只构建默认的 Dockerfile'
         required: false
@@ -17,7 +17,7 @@ on:
       - run
 
 env:
-  DEFAULT_PROJECTS: 'openclaw,nanobot,open-auto-glm,opencode,deepseek-harness'
+  DEFAULT_PROJECTS: 'openclaw,nanobot,open-auto-glm,opencode,deepseek-harness,zen-gate-package'
 
 jobs:
   parse-projects:
