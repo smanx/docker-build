@@ -5,7 +5,11 @@ on:
       projects:
         description: 'Comma-separated project names to build, e.g., "ouben1,ouben2,ouben3"'
         required: false
-        default: 'openclaw,nanobot,open-auto-glm,opencode,opencode2,deepseek-harness'
+        default: 'openclaw,nanobot,open-auto-glm,opencode,deepseek-harness'
+      dockerfiles:
+        description: '可选。逗号分隔的 Dockerfile，只构建这些；留空则用项目目录里的 .dockerfiles，再留空则只构建默认的 Dockerfile'
+        required: false
+        default: ''
   schedule:
     - cron: '0 18 * * *'  # 每天的00:00触发
   push:
@@ -13,7 +17,7 @@ on:
       - run
 
 env:
-  DEFAULT_PROJECTS: 'openclaw,nanobot,open-auto-glm,opencode,opencode2,deepseek-harness'
+  DEFAULT_PROJECTS: 'openclaw,nanobot,open-auto-glm,opencode,deepseek-harness'
 
 jobs:
   parse-projects:
@@ -58,22 +62,15 @@ jobs:
         run: |
           git clone https://${{ env.REPO_ACCESS_TOKEN }}@${{ env.REPO_URL}} ${{ env.REPO_PATH }}
 
+      # ── 镜像仓库名 ──────────────────────────────────────────────────────────
       # 镜像仓库名默认就是项目名。项目根目录下如果存在 .image-name 文件，
       # 就用文件里第一行有效内容（不含 namespace）作为镜像仓库名。
-      # 例：opencode2 目录下的 .image-name 写着 opencode，于是 V2 也推到 smanx/opencode，
-      #     与 V1 共用一个仓库，靠 tag 区分。
       # 文件不存在、为空、只有注释，或内容不是合法的镜像名时，都回退到项目名。
-      #
-      # 项目根目录下如果存在 .no-latest 文件，则该项目的构建不推 :latest tag，
-      # 把 latest 让给同一个镜像仓库的其它项目。opencode/（V1）用它把 latest 让给
-      # opencode2/（V2），这样 latest 的归属不再取决于并发构建谁先谁后。
-      # 只影响基础构建的 :latest；变体的 <前缀>-latest 逻辑保持原样。
       - name: Resolve image name
         run: |
           set -euo pipefail
           IMAGE="${{ matrix.project }}"
-          DIR="${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}"
-          MARKER="$DIR/.image-name"
+          MARKER="${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}/.image-name"
           if [ -f "$MARKER" ]; then
             CUSTOM=$(tr -d '\r' < "$MARKER" | sed -e 's/[[:space:]]//g' -e '/^#/d' -e '/^$/d' | head -1)
             if printf '%s' "$CUSTOM" | grep -qE '^[a-z0-9]+([._-][a-z0-9]+)*$'; then
@@ -82,15 +79,9 @@ jobs:
               echo "::warning::.image-name 里没有可用的镜像名（读到 '$CUSTOM'），改用项目名"
             fi
           fi
-          if [ -f "$DIR/.no-latest" ]; then
-            SKIP_LATEST=true
-          else
-            SKIP_LATEST=false
-          fi
-          echo "project=${{ matrix.project }}  image=$IMAGE  skip-latest=$SKIP_LATEST"
+          echo "project=${{ matrix.project }}  image=$IMAGE"
           echo "IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/$IMAGE" >> "$GITHUB_ENV"
           echo "GHCR_IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/$IMAGE" >> "$GITHUB_ENV"
-          echo "SKIP_LATEST=$SKIP_LATEST" >> "$GITHUB_ENV"
 
       # 设置 Docker 构建环境
       - name: Set up Docker Buildx
@@ -104,88 +95,147 @@ jobs:
       - name: Login to GitHub Container Registry
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      # 构建 Docker 镜像（仅 amd64 平台用于提取 APP_VERSION）
-      - name: Build Docker image (amd64 only)
+      # ── 构建、提取版本号、推送（按 Dockerfile 逐个进行）─────────────────────
+      # 一个项目目录可以放多个 Dockerfile（例：opencode 同时提供 V1 与 V2），
+      # 每个都构建、提取自己的版本号、推自己的 tag。
+      #
+      # 构建哪些，由 workflow_dispatch 的 dockerfiles 输入（逗号分隔）或项目目录下的
+      # .dockerfiles 清单决定；两者都没有时只构建默认的 Dockerfile。
+      #
+      # .dockerfiles 每行一个条目：<Dockerfile 路径> [latest]
+      #   例（opencode/）：
+      #     Dockerfile              # V1：推 1.18.35
+      #     Dockerfile.v2 latest    # V2：推 2.0.24 和 latest
+      #
+      # 谁推 :latest 始终以清单为准，不看 dispatch 输入——输入只用来缩小构建范围。
+      # 这样单独重建 Dockerfile.v2 时，latest 仍然归 V2。
+      - name: Build and push per Dockerfile
         run: |
-          cd ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
-          docker build -t $IMAGE_NAME:build .
+          set -euo pipefail
+          cd "${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}"
 
-      # 从镜像中提取 APP_VERSION 环境变量
-      - name: Extract APP_VERSION from image
-        id: version
-        run: |
-          # 启动容器
-          CONTAINER_ID=$(docker run -d $IMAGE_NAME:build sleep 3600)
-          
-          # 直接复制文件到本地
-          docker cp $CONTAINER_ID:/tmp/app_version.env /tmp/app_version.env 2>/dev/null || echo "" > /tmp/app_version.env
-          
-          # 停止并删除容器
-          docker stop $CONTAINER_ID >/dev/null 2>&1 || true
-          docker rm $CONTAINER_ID >/dev/null 2>&1 || true
-          
-          # 读取文件内容并提取 APP_VERSION
-          if [ -f /tmp/app_version.env ]; then
-            APP_VERSION=$(grep -oP 'APP_VERSION=\K[^[:space:]]+' /tmp/app_version.env 2>/dev/null || echo "")
-            echo "Extracted APP_VERSION from file: '$APP_VERSION'"
+          SPEC='${{ inputs.dockerfiles }}'
+          MANIFEST="./.dockerfiles"
+
+          # 1) :latest 归属方。以清单为准；没有清单时归默认的 Dockerfile。
+          LATEST_OWNER="Dockerfile"
+          if [ -f "$MANIFEST" ]; then
+            while IFS= read -r LINE || [ -n "$LINE" ]; do
+              LINE=$(printf '%s' "$LINE" | tr -d '\r' | sed -e 's/#.*//' -e 's/[[:space:]][[:space:]]*/ /g' -e 's/^ //' -e 's/ $//')
+              [ -n "$LINE" ] || continue
+              case " $LINE " in
+                *" latest ") LATEST_OWNER="${LINE%% *}" ;;
+              esac
+            done < "$MANIFEST"
           fi
-          
-          # 如果文件中没找到，尝试从环境变量获取
-          if [ -z "$APP_VERSION" ]; then
-            APP_VERSION=$(docker run --rm $IMAGE_NAME:build printenv APP_VERSION 2>/dev/null || echo "")
-            echo "Extracted APP_VERSION from env: '$APP_VERSION'"
-          fi
-          
-          # 校验版本号是否有效：不为空、不包含空格
-          if [ -n "$APP_VERSION" ] && [[ ! "$APP_VERSION" =~ [[:space:]] ]]; then
-            echo "version=$APP_VERSION" >> $GITHUB_OUTPUT
-            echo "Detected APP_VERSION: $APP_VERSION"
+
+          # 2) 要构建哪些
+          BUILD_LIST=$(mktemp)
+          if [ -n "$SPEC" ]; then
+            echo "构建范围来自 workflow_dispatch 输入: $SPEC"
+            echo "$SPEC" | tr ',' '\n' | sed -e 's/[[:space:]][[:space:]]*/ /g' -e '/^ *$/d' > "$BUILD_LIST"
+          elif [ -f "$MANIFEST" ]; then
+            echo "构建范围来自 $MANIFEST"
+            tr -d '\r' < "$MANIFEST" \
+              | sed -e 's/#.*//' -e 's/[[:space:]][[:space:]]*/ /g' -e '/^ *$/d' > "$BUILD_LIST"
           else
-            DATE_TAG=$(date +%Y%m%d)
-            echo "version=$DATE_TAG" >> $GITHUB_OUTPUT
-            echo "APP_VERSION not found or invalid, using date: $DATE_TAG"
+            echo "没有指定也没有 .dockerfiles，只构建默认的 Dockerfile"
+            printf 'Dockerfile\n' > "$BUILD_LIST"
           fi
 
-      # 构建多平台镜像并推送到 DockerHub 和 GitHub Container Registry
-      - name: Build and push multi-platform Docker image
-        run: |
-          VERSION_TAG="${{ steps.version.outputs.version }}"
-          
-          cd ${{ env.REPO_PATH }}/${{ env.PROJECT_NAME }}
+          # 清单里第一列才是 Dockerfile 路径，latest 只是标记，构建时要去掉。
+          # 先去掉行首空白，再从第一个空白处截断（顺序不能反，否则缩进行会被清空）。
+          sed -i -e 's/^[[:space:]]*//' -e 's/[[:space:]].*$//' "$BUILD_LIST"
 
-          # 变体构建：项目目录存在 .build-variants 时，按其清单多打变体 tag
-          # 每行格式：<tag前缀>|<该前缀要安装的 apt 工具列表（空格分隔）>
-          # 构建时传 --build-arg DEV_TOOLS=<前缀>，由 Dockerfile 依据前缀
-          # 从本文件读取工具列表安装（各前缀安装哪些工具在文件里定义）
-          # 每个变体推送 4 个 tag：<前缀>-<版本号> / <前缀>-latest（Docker Hub 与 GHCR 各一组）
-          # 没有该文件（或为空）时保持原逻辑，不构建变体
-          VARIANT_FILE="./.build-variants"
-          if [ -f "$VARIANT_FILE" ]; then
-            while IFS='|' read -r PREFIX TOOLS || [ -n "$PREFIX" ]; do
-              docker buildx build \
-                --platform linux/amd64,linux/arm64 \
-                --build-arg DEV_TOOLS=$PREFIX \
-                -t $IMAGE_NAME:${PREFIX}-$VERSION_TAG \
-                -t $IMAGE_NAME:${PREFIX}-latest \
-                -t $GHCR_IMAGE_NAME:${PREFIX}-$VERSION_TAG \
-                -t $GHCR_IMAGE_NAME:${PREFIX}-latest \
-                . --push
-              echo "✅ 变体构建完成: $PREFIX ($TOOLS)"
-            done < <(grep -vE '^[[:space:]]*(#|$)' "$VARIANT_FILE")
+          if [ ! -s "$BUILD_LIST" ]; then
+            echo "::warning::构建清单为空，没有可构建的 Dockerfile"
+            rm -f "$BUILD_LIST"
+            exit 0
           fi
 
-          # 基础构建的 tag。存在 .no-latest 时不推 :latest，把 latest 让给同一仓库的
-          # 其它项目（opencode/ 让给 opencode2/），避免两个 job 并发推同一个 latest。
-          TAGS=(
-            -t "$IMAGE_NAME:$VERSION_TAG"
-            -t "$GHCR_IMAGE_NAME:$VERSION_TAG"
-          )
-          if [ "$SKIP_LATEST" = "true" ]; then
-            echo "跳过 :latest（${{ env.PROJECT_NAME }}/ 存在 .no-latest）"
-          else
-            TAGS+=(-t "$IMAGE_NAME:latest" -t "$GHCR_IMAGE_NAME:latest")
-          fi
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            "${TAGS[@]}" \
-            . --push
+          echo "构建清单（latest 归属方: $LATEST_OWNER）:"
+          sed 's/^/  /' "$BUILD_LIST"
+
+          while IFS= read -r DOCKERFILE || [ -n "$DOCKERFILE" ]; do
+            DOCKERFILE=$(printf '%s' "$DOCKERFILE" | sed -e 's/^ //' -e 's/ $//')
+            [ -n "$DOCKERFILE" ] || continue
+            PUSH_LATEST=false
+            if [ "$DOCKERFILE" = "$LATEST_OWNER" ]; then PUSH_LATEST=true; fi
+
+            if [ ! -f "$DOCKERFILE" ]; then
+              echo "::warning::${{ env.PROJECT_NAME }}/ 里没有 $DOCKERFILE，跳过"
+              continue
+            fi
+
+            echo "=================================================="
+            echo "构建 $DOCKERFILE   latest=$PUSH_LATEST"
+
+            # a) 单架构构建，仅用于提取版本号
+            docker build -f "$DOCKERFILE" -t "$IMAGE_NAME:build" .
+
+            # b) 提取 APP_VERSION。用 docker create 而不是 docker run：
+            #    只复制文件，不需要真的把服务启动起来。
+            rm -f "$RUNNER_TEMP/app_version.env"
+            CID=$(docker create "$IMAGE_NAME:build")
+            docker cp "$CID":/tmp/app_version.env "$RUNNER_TEMP/app_version.env" 2>/dev/null || true
+            docker rm "$CID" >/dev/null 2>&1 || true
+
+            APP_VERSION=""
+            if [ -f "$RUNNER_TEMP/app_version.env" ]; then
+              APP_VERSION=$(grep -oP 'APP_VERSION=\K[^[:space:]]+' "$RUNNER_TEMP/app_version.env" 2>/dev/null || true)
+              echo "从文件读到 APP_VERSION: '$APP_VERSION'"
+            fi
+            if [ -z "$APP_VERSION" ]; then
+              APP_VERSION=$(docker run --rm --entrypoint printenv "$IMAGE_NAME:build" APP_VERSION 2>/dev/null || true)
+              echo "从环境变量读到 APP_VERSION: '$APP_VERSION'"
+            fi
+
+            # 版本号归一化：OpenCode V2 的 --version 输出 "opencode v2.0.24"，
+            # V1 输出 "1.18.35"。去掉可能存在的前导 v，保证 tag 始终是裸版本号。
+            APP_VERSION="$(printf '%s' "$APP_VERSION" | sed 's/^v//')"
+
+            # 校验：非空且不含空格，否则退回日期标签
+            if [ -z "$APP_VERSION" ] || [[ "$APP_VERSION" =~ [[:space:]] ]]; then
+              APP_VERSION="$(date +%Y%m%d)"
+              echo "::warning::$DOCKERFILE 未提供可用的 APP_VERSION，改用日期标签 $APP_VERSION"
+            fi
+
+            # c) 变体构建：项目目录存在 .build-variants 时，按其清单多打变体 tag
+            #    每行格式：<tag前缀>|<该前缀要安装的 apt 工具列表（空格分隔）>
+            #    每个变体推送 4 个 tag：<前缀>-<版本号> / <前缀>-latest（Docker Hub 与 GHCR 各一组）
+            VARIANT_FILE="./.build-variants"
+            if [ -f "$VARIANT_FILE" ]; then
+              while IFS='|' read -r PREFIX TOOLS || [ -n "$PREFIX" ]; do
+                docker buildx build \
+                  --platform linux/amd64,linux/arm64 \
+                  -f "$DOCKERFILE" \
+                  --build-arg DEV_TOOLS="$PREFIX" \
+                  -t "$IMAGE_NAME:${PREFIX}-$APP_VERSION" \
+                  -t "$IMAGE_NAME:${PREFIX}-latest" \
+                  -t "$GHCR_IMAGE_NAME:${PREFIX}-$APP_VERSION" \
+                  -t "$GHCR_IMAGE_NAME:${PREFIX}-latest" \
+                  . --push
+                echo "✅ 变体构建完成: $PREFIX ($TOOLS)"
+              done < <(grep -vE '^[[:space:]]*(#|$)' "$VARIANT_FILE")
+            fi
+
+            # d) 多架构构建并推送
+            TAGS=(
+              -t "$IMAGE_NAME:$APP_VERSION"
+              -t "$GHCR_IMAGE_NAME:$APP_VERSION"
+            )
+            if [ "$PUSH_LATEST" = "true" ]; then
+              TAGS+=(-t "$IMAGE_NAME:latest" -t "$GHCR_IMAGE_NAME:latest")
+            else
+              echo "跳过 :latest（latest 归属方是 $LATEST_OWNER）"
+            fi
+            echo "推送 tag: $APP_VERSION"
+            docker buildx build \
+              --platform linux/amd64,linux/arm64 \
+              -f "$DOCKERFILE" \
+              "${TAGS[@]}" \
+              . --push
+            echo "✅ $DOCKERFILE 完成，版本 $APP_VERSION"
+          done < "$BUILD_LIST"
+
+          rm -f "$BUILD_LIST"
