@@ -46,6 +46,10 @@ jobs:
       contents: read
       packages: write        # 新增：允许推送镜像到 GitHub Container Registry
     strategy:
+      # 各项目相互独立，任何一个构建失败都不该连累其余项目：
+      # 关掉 fail-fast —— 它默认为 true，会在任一矩阵任务失败时取消其他所有并行任务。
+      # （整体运行仍会标红，只是失败的只剩真正坏掉的那一个。）
+      fail-fast: false
       matrix:
         project: ${{ fromJson(needs.parse-projects.outputs.projects) }}
     env:
