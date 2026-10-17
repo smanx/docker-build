@@ -152,25 +152,26 @@ jobs:
           TOKEN_B_LOCAL: ${{ env.TOKEN_B }}
         run: |
           # 检查仓库是否存在，不存在则用对应Token调用GitHub API创建
+          # 日志输出到 stderr，仅让结果值(0/1)进入 stdout 供 $() 捕获
           create_repo() {
             local REPO_FULL=$1 TOKEN=$2 LABEL=$3
             local OWNER=${REPO_FULL%%/*}
             local NAME=${REPO_FULL#*/}
             if curl -sf -o /dev/null -H "Authorization: Bearer $TOKEN" \
                  "https://api.github.com/repos/${REPO_FULL}"; then
-              echo "✅ ${LABEL} 已存在: ${REPO_FULL}"
+              echo "✅ ${LABEL} 已存在: ${REPO_FULL}" >&2
               echo 1
             else
-              echo "⚠️  ${LABEL} 不存在，尝试创建: ${REPO_FULL}"
+              echo "⚠️  ${LABEL} 不存在，尝试创建: ${REPO_FULL}" >&2
               if curl -sf -X POST \
                    -H "Authorization: Bearer $TOKEN" \
                    -H "Accept: application/vnd.github+json" \
                    "https://api.github.com/user/repos" \
                    -d "{\"name\":\"${NAME}\",\"private\":false,\"description\":\"Auto-created by sync workflow\"}" > /dev/null; then
-                echo "✅ ${LABEL} 创建成功: ${REPO_FULL}"
+                echo "✅ ${LABEL} 创建成功: ${REPO_FULL}" >&2
                 echo 1
               else
-                echo "❌ ${LABEL} 创建失败（请检查Token是否有 repo 权限且属于 ${OWNER}）: ${REPO_FULL}"
+                echo "❌ ${LABEL} 创建失败（请检查Token是否有 repo 权限且属于 ${OWNER}）: ${REPO_FULL}" >&2
                 echo 0
               fi
             fi
