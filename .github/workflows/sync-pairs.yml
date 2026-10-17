@@ -140,8 +140,8 @@ jobs:
           
           # 同步Tags（按需开启）
           if [ "${{ inputs.sync_tags || env.DEFAULT_SYNC_TAGS }}" = "true" ]; then
-            [ $REPO_A_EXISTS -eq 1 ] && git fetch repo_a --tags 2>/dev/null
-            [ $REPO_B_EXISTS -eq 1 ] && git fetch repo_b --tags 2>/dev/null
+            [ $REPO_A_EXISTS -eq 1 ] && git fetch repo_a --tags 2>/dev/null || true
+            [ $REPO_B_EXISTS -eq 1 ] && git fetch repo_b --tags 2>/dev/null || true
           fi
 
       - name: 创建缺失的仓库
