@@ -182,7 +182,11 @@ jobs:
           DOWNLOAD_START=$(date +%s)
 
           # 克隆仓库（包含 LFS 文件）
-          if git clone "https://$USERNAME:$TOKEN@huggingface.co/datasets/$DATASET" repo 2>/dev/null; then
+          # token 走 Authorization 请求头而非 URL userinfo：git/curl 跟随 30x
+          # 重定向时会丢弃 URL 里的 token，导致 401 + "could not read Username"，
+          # 表现为时好时坏。详见 projects.yml 里的说明。
+          AUTH="Authorization: Basic $(printf '%s' "$USERNAME:$TOKEN" | base64 -w0)"
+          if git -c http.extraHeader="$AUTH" clone "https://huggingface.co/datasets/$DATASET" repo 2>/dev/null; then
             DOWNLOAD_END=$(date +%s)
             DOWNLOAD_TIME=$((DOWNLOAD_END - DOWNLOAD_START))
             echo "✅ 克隆仓库成功 (耗时: ${DOWNLOAD_TIME} 秒)"

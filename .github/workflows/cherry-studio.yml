@@ -51,13 +51,22 @@ jobs:
       REPO_URL: ${{ vars.REPO_URL }}
       REPO_PATH: ${{ vars.REPO_PATH }}
     steps:
+      # 拉取私有仓库代码（使用 GitHub PAT）
+      # token 走 Authorization 请求头，不放 URL userinfo —— git/curl 跟随 30x
+      # 重定向时会丢弃 URL 里的 token，导致 401 + "could not read Username"，
+      # 表现为时好时坏。详见 projects.yml 里的说明。
       - name: Pull project code
         env:
           REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
         run: |
+          set -euo pipefail
           # 确保路径干净
           rm -rf $REPO_PATH
-          git clone https://$REPO_ACCESS_TOKEN@$REPO_URL $REPO_PATH
+          URL="https://${REPO_URL#*://}"
+          URL="${URL%/}"
+          URL="${URL%.git}.git"
+          AUTH="Authorization: Basic $(printf '%s' "x-access-token:$REPO_ACCESS_TOKEN" | base64 -w0)"
+          git -c http.extraHeader="$AUTH" clone "$URL" $REPO_PATH
       # 必须安装 QEMU 才能进行跨架构编译（比如在 amd64 机器上构建 arm64 镜像）
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

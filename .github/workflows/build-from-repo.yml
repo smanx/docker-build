@@ -43,7 +43,11 @@ jobs:
           REPO_NAME=$(echo $REPO | cut -d'/' -f2)
           OWNER=$(echo $REPO | cut -d'/' -f1)
           if [ "$OWNER" = "smanx" ]; then
-            git clone https://${{ secrets.GH_PAT }}@github.com/$REPO.git $REPO_NAME
+            # token 走 Authorization 请求头而非 URL userinfo：git/curl 跟随 30x
+            # 重定向时会丢弃 URL 里的 token，导致 401 + "could not read Username"，
+            # 表现为时好时坏。详见 projects.yml 里的说明。
+            AUTH="Authorization: Basic $(printf '%s' "x-access-token:${{ secrets.GH_PAT }}" | base64 -w0)"
+            git -c http.extraHeader="$AUTH" clone "https://github.com/$REPO.git" $REPO_NAME
           else
             git clone https://github.com/$REPO.git $REPO_NAME
           fi

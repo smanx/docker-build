@@ -49,7 +49,15 @@ jobs:
         env:
           REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
         run: |
-          git clone https://$REPO_ACCESS_TOKEN@$REPO_URL $REPO_PATH
+          # token 走 Authorization 请求头而非 URL userinfo：git/curl 跟随 30x 重定向时
+          # 会丢弃 URL 里的 token，导致 401 + "could not read Username"，
+          # 表现为时好时坏。详见 projects.yml 里的说明。
+          set -euo pipefail
+          URL="https://${REPO_URL#*://}"
+          URL="${URL%/}"
+          URL="${URL%.git}.git"
+          AUTH="Authorization: Basic $(printf '%s' "x-access-token:$REPO_ACCESS_TOKEN" | base64 -w0)"
+          git -c http.extraHeader="$AUTH" clone "$URL" ${REPO_PATH}
 
       # 新增步骤：拷贝 Dockerfile
       - name: Copy Dockerfile to out directory
