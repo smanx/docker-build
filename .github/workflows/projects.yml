@@ -59,12 +59,63 @@ jobs:
       REPO_PATH: ${{ vars.REPO_PATH }}      # 新增：仓库本地路径变量
       PROJECT_NAME: ${{ matrix.project }}
     steps:
-      # 拉取私有仓库代码（使用 GitHub PAT）
+      # ── 拉取私有仓库代码 ───────────────────────────────────────────────────
+      # 这里原来写作：
+      #   git clone https://$TOKEN@$REPO_URL $REPO_PATH
+      # 会"有时成功、有时失败"，报错是
+      #   warning: redirecting to https://github.com/<owner>/<repo>.git/
+      #   fatal: could not read Username for 'https://github.com'
+      #   fatal: expected flush after ref listing
+      #
+      # 根因：git/curl 在跟随 30x 重定向时**会丢掉 URL 里的 userinfo**
+      # （即 `$TOKEN@` 那一段，见 git 的 http.c：match_effective_url 用
+      # strip_url_credential() 比对；libcurl 默认只在同 host 时才保留凭据）。
+      # 于是重定向后的请求变成匿名请求：
+      #   · 仓库是私有的 → GitHub 回 401
+      #   · git 于是想交互式问用户名，而 CI 里没有 tty
+      #     → "could not read Username" → 克隆失败
+      # 之所以时好时坏，是因为"是否触发重定向"本身不确定：
+      #   · REPO_URL 少了 .git 后缀、大小写不同、末尾多/少斜杠，都会被 301
+      #   · 部分 CDN 边缘节点会补一个 301 到规范化地址
+      #   · http/1.1 与 http/2、以及连接复用情况不同，走的节点也可能不同
+      # 所以同一个 PAT、同一个仓库，这次命中规范化直连就成功，下次被 301 就失败。
+      # 重试之所以"第二次又正常了"，是因为重试时可能被路由到不做重定向的节点。
+      #
+      # 修法：把 token 从 URL 里拿出来，改用 http.extraHeader 传
+      # Authorization 头。自定义请求头在重定向时会被 curl 保留
+      # （libcurl 的 CURLOPT_UNRESTRICTED_AUTH 语义），
+      # 即使仍然被 301，凭据也不会丢。
+      # 另外把 URL 规范化成 https://<owner>/<repo>.git，尽量连重定向都不触发。
+      # token 也就不再被写进 .git/config 落盘。
       - name: Pull project code
         env:
           REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
         run: |
-          git clone https://${{ env.REPO_ACCESS_TOKEN }}@${{ env.REPO_URL}} ${{ env.REPO_PATH }}
+          set -euo pipefail
+
+          # 规范化 URL：强制 https 协议 + 补 .git 后缀，避免触发 301
+          URL="${{ env.REPO_URL }}"
+          URL="https://${URL#*://}"
+          URL="${URL%/}"                     # 去掉末尾斜杠
+          URL="${URL%.git}.git"              # 补上 .git 后缀
+
+          echo "Cloning $URL"
+
+          # GitHub PAT 当密码用，用户名任意（x-access-token 是 GitHub 官方推荐值）
+          AUTH="Authorization: Basic $(printf '%s' 'x-access-token:${{ env.REPO_ACCESS_TOKEN }}' | base64 -w0)"
+
+          # 偶发的网络抖动也兜一下：最多重试 3 次
+          for i in 1 2 3; do
+            if git -c http.extraHeader="$AUTH" clone "$URL" "${{ env.REPO_PATH }}"; then
+              exit 0
+            fi
+            echo "::warning::git clone 失败（第 $i/3 次），5 秒后重试"
+            rm -rf "${{ env.REPO_PATH }}"
+            sleep 5
+          done
+
+          echo "::error::git clone 重试 3 次后仍然失败"
+          exit 1
 
       # ── 镜像仓库名 ──────────────────────────────────────────────────────────
       # 镜像仓库名默认就是项目名。项目根目录下如果存在 .image-name 文件，
