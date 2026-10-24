@@ -1,0 +1,543 @@
+name: HF Mirror (dataset / space -> 多账号)
+
+# ============================================================================
+# 所有配置都放在仓库 Variable 里：Settings -> Secrets and variables -> Actions
+# -> Variables -> New repository variable，名字固定为 HF_MIRROR_CONFIG。
+#
+# 值是一个 JSON 数组：
+#   - 数组的每个元素 = 一对账号（源账号 -> 目标账号），可以写很多对；
+#   - 每对里的 repos 再列出这对账号之间要复制的仓库，一个源一个目标（1 对 1）。
+#
+# 账号名可以不写：不写就用 token 调 /api/whoami 自动识别「token 所属账号」，
+# 所以最简形式只填两个 token 就够了。
+#
+# [
+#   {
+#     "source_token": "hf_xxx",
+#     "target_token": "hf_yyy",
+#     "private": true,
+#     "repos": [
+#       {"source": "my-dataset", "target": "my-dataset", "type": "dataset"},
+#       {"source": "my-space", "type": "space", "private": false}
+#     ]
+#   },
+#   {
+#     "source_account": "acct3",
+#     "target_account": "acct4",
+#     "source_token": "hf_aaa",
+#     "target_token": "hf_bbb",
+#     "repos": [
+#       {"source": "dataset-x", "type": "dataset"}
+#     ]
+#   }
+# ]
+#
+# 字段：
+#   source_account / target_account  账号名，可省略；省略时用对应 token 自动识别
+#   source_token / target_token      HF token；target_token 必填，源公开时 source_token 可留空
+#   private                          新建目标仓库的可见性，省略则跟随源仓库
+#   repos[]                          仓库映射（1 对 1）
+#     source / target                仓库名（自动补账号前缀）或 owner/name；
+#                                    target 省略 = 和源同名
+#     type                           dataset / space / model / auto（默认 auto）
+#     private                        单独指定这个仓库的可见性
+#
+# 同步方式：git bare clone + push（保留提交历史、tag、LFS 对象），目标仓库不存在会自动创建。
+# 注意：Variable 里存的是明文，能改仓库配置的人都看得到，建议用只带 write 权限的独立 token。
+# ============================================================================
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 每天 UTC 3 点
+  workflow_dispatch:
+    inputs:
+      only:
+        description: '只同步源/目标里包含这个关键字的映射（逗号分隔，留空为全部）'
+        required: false
+        type: string
+        default: ''
+      force:
+        description: '强制推送（用源覆盖目标端历史）'
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: '只检查配置和仓库，不实际推送'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hf-mirror
+  cancel-in-progress: false
+
+env:
+  HF_MIRROR_CONFIG: ${{ vars.HF_MIRROR_CONFIG }}
+  HF_MIRROR_ONLY: ${{ inputs.only }}
+  HF_MIRROR_FORCE: ${{ inputs.force }}
+  HF_MIRROR_DRY_RUN: ${{ inputs.dry_run }}
+
+jobs:
+  # 解析 Variable，生成「一个仓库映射一个 job」的矩阵（矩阵里不含 token）
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_work: ${{ steps.plan.outputs.has_work }}
+    steps:
+      - name: 解析配置
+        id: plan
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          HF = "https://huggingface.co"
+
+          def die(message):
+              print("::error::" + message, flush=True)
+              sys.exit(1)
+
+          def mask(token):
+              if isinstance(token, str) and token:
+                  print("::add-mask::" + token, flush=True)
+
+          def emit(key, value):
+              path = os.environ.get("GITHUB_OUTPUT")
+              if not path:
+                  print(f"{key}={value}", flush=True)
+                  return
+              with open(path, "a", encoding="utf-8") as handle:
+                  handle.write(f"{key}={value}\n")
+
+          def whoami_account(token):
+              request = urllib.request.Request(HF + "/api/whoami-v2", method="GET")
+              request.add_header("Authorization", "Bearer " + token)
+              request.add_header("User-Agent", "hf-mirror-action")
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      body = response.read().decode("utf-8", "replace")
+              except urllib.error.HTTPError as exc:
+                  die(f"用 token 识别账号失败（HTTP {exc.code}），请检查 token 是否有效")
+              except urllib.error.URLError as exc:
+                  die(f"访问 Hugging Face 失败: {exc.reason}")
+              try:
+                  info = json.loads(body)
+              except json.JSONDecodeError:
+                  die("whoami 返回的不是合法 JSON")
+              name = str(info.get("name") or "").strip()
+              if not name:
+                  die("whoami 没有返回账号名，请在配置里显式填写账号")
+              return name
+
+          raw = (os.environ.get("HF_MIRROR_CONFIG") or "").strip()
+          if not raw:
+              die("仓库 Variable HF_MIRROR_CONFIG 为空，请先配置 JSON 数组")
+
+          try:
+              pairs = json.loads(raw)
+          except json.JSONDecodeError as exc:
+              die(f"HF_MIRROR_CONFIG 不是合法 JSON: {exc}")
+
+          if not isinstance(pairs, list) or not pairs:
+              die("HF_MIRROR_CONFIG 必须是 JSON 数组，且至少包含一对账号")
+
+          keywords = [
+              item.strip().lower()
+              for item in (os.environ.get("HF_MIRROR_ONLY") or "").split(",")
+              if item.strip()
+          ]
+
+          include = []
+          for pair_index, pair in enumerate(pairs):
+              if not isinstance(pair, dict):
+                  die(f"第 {pair_index} 组配置必须是对象")
+
+              mask(pair.get("source_token"))
+              mask(pair.get("target_token"))
+              source_token = str(pair.get("source_token") or "").strip()
+              target_token = str(pair.get("target_token") or "").strip()
+              if not target_token:
+                  die(f"第 {pair_index} 组缺少 target_token")
+
+              repos = pair.get("repos")
+              if not isinstance(repos, list) or not repos:
+                  die(f"第 {pair_index} 组缺少 repos 数组")
+
+              resolved = {}
+
+              def account_of(kind, pair_index=pair_index, pair=pair, resolved=resolved):
+                  if kind in resolved:
+                      return resolved[kind]
+                  declared = str(pair.get(kind + "_account") or "").strip()
+                  if declared:
+                      resolved[kind] = declared
+                      return declared
+                  token = source_token if kind == "source" else target_token
+                  if not token:
+                      die(
+                          f"第 {pair_index} 组没有 {kind}_account，"
+                          f"也没有 {kind}_token 可以用来识别账号"
+                      )
+                  name = whoami_account(token)
+                  print(
+                      f"ℹ️ 第 {pair_index} 组没填 {kind}_account，"
+                      f"按 token 识别为: {name}",
+                      flush=True,
+                  )
+                  resolved[kind] = name
+                  return name
+
+              for repo_index, item in enumerate(repos):
+                  if isinstance(item, str):
+                      item = {"source": item}
+                  if not isinstance(item, dict) or not item.get("source"):
+                      die(f"第 {pair_index} 组第 {repo_index} 个映射缺少 source")
+
+                  raw_source = str(item["source"]).strip()
+                  source = (
+                      raw_source
+                      if "/" in raw_source
+                      else f"{account_of('source')}/{raw_source}"
+                  )
+                  raw_target = str(item.get("target") or "").strip()
+                  if raw_target:
+                      target = (
+                          raw_target
+                          if "/" in raw_target
+                          else f"{account_of('target')}/{raw_target}"
+                      )
+                  else:
+                      # 没写 target：同名仓库放到目标账号下
+                      name_part = raw_source.split("/", 1)[-1]
+                      target = f"{account_of('target')}/{name_part}"
+                  repo_type = str(item.get("type") or "auto").strip().lower()
+                  if repo_type not in ("dataset", "space", "model", "auto"):
+                      die(f"{source}: type 只能是 dataset / space / model / auto")
+
+                  private = item.get("private")
+                  if private is None:
+                      private = pair.get("private")
+                  private_hint = "auto" if private is None else ("true" if private else "false")
+
+                  label = f"{source} -> {target}"
+                  if keywords and not any(k in label.lower() for k in keywords):
+                      continue
+
+                  include.append(
+                      {
+                          "pair": pair_index,
+                          "repo": repo_index,
+                          "source": source,
+                          "target": target,
+                          "type": repo_type,
+                          "private": private_hint,
+                          "label": label,
+                      }
+                  )
+
+          matrix = json.dumps({"include": include}, ensure_ascii=False, separators=(",", ":"))
+          emit("matrix", matrix)
+          emit("has_work", "true" if include else "false")
+
+          rows = ["| 源 | 目标 | 类型 | 新建可见性 |", "| --- | --- | --- | --- |"]
+          for entry in include:
+              rows.append(
+                  f"| {entry['source']} | {entry['target']} | {entry['type']} | {entry['private']} |"
+              )
+          if not include:
+              rows.append("| （没有匹配的映射） | - | - | - |")
+
+          summary = "### HF Mirror 计划\n\n" + "\n".join(rows)
+          print(f"计划完成: {len(include)} 个仓库映射", flush=True)
+          path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if path:
+              with open(path, "a", encoding="utf-8") as handle:
+                  handle.write(summary + "\n")
+          PY
+
+  # 一个仓库映射一个 job，并行跑；单个失败不影响其他
+  mirror:
+    needs: plan
+    if: needs.plan.outputs.has_work == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    name: ${{ matrix.label }}
+    env:
+      PAIR_INDEX: ${{ matrix.pair }}
+      REPO_INDEX: ${{ matrix.repo }}
+      SRC_REPO: ${{ matrix.source }}
+      DST_REPO: ${{ matrix.target }}
+      REPO_TYPE: ${{ matrix.type }}
+      TARGET_PRIVATE: ${{ matrix.private }}
+    steps:
+      - name: 磁盘空间
+        run: df -h /
+
+      - name: 同步 ${{ matrix.source }} -> ${{ matrix.target }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import shutil
+          import subprocess
+          import sys
+          import tempfile
+          import time
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          HF = "https://huggingface.co"
+          API_PREFIX = {"dataset": "datasets", "space": "spaces", "model": "models"}
+          GIT_PREFIX = {"dataset": "datasets/", "space": "spaces/", "model": ""}
+
+          SRC = os.environ["SRC_REPO"]
+          DST = os.environ["DST_REPO"]
+          TYPE_HINT = (os.environ.get("REPO_TYPE") or "auto").strip().lower()
+          PRIVATE_HINT = (os.environ.get("TARGET_PRIVATE") or "auto").strip().lower()
+          PAIR_INDEX = int(os.environ.get("PAIR_INDEX") or 0)
+          REPO_INDEX = int(os.environ.get("REPO_INDEX") or 0)
+          STARTED = time.time()
+
+          def truthy(name):
+              return (os.environ.get(name) or "").strip().lower() in ("1", "true", "yes", "on")
+
+          DRY_RUN = truthy("HF_MIRROR_DRY_RUN")
+          FORCE = truthy("HF_MIRROR_FORCE")
+
+          SECRETS = []
+
+          def mask(token):
+              if isinstance(token, str) and token:
+                  SECRETS.append(token)
+                  print("::add-mask::" + token, flush=True)
+
+          def redact(text):
+              text = str(text)
+              for secret in sorted(SECRETS, key=len, reverse=True):
+                  text = text.replace(secret, "***")
+              return re.sub(r"(https://)[^/@\s]+:[^/@\s]+@", r"\1***:***@", text)
+
+          def cell(text):
+              return redact(str(text)).replace("|", "\\|").replace("\n", " ")
+
+          def write_summary(markdown):
+              path = os.environ.get("GITHUB_STEP_SUMMARY")
+              if path:
+                  with open(path, "a", encoding="utf-8") as handle:
+                      handle.write(markdown + "\n")
+              print(markdown, flush=True)
+
+          def report(ok, message, repo_type="-", mode="git"):
+              icon = "✅" if ok else "❌"
+              elapsed = round(time.time() - STARTED, 1)
+              write_summary(
+                  "| 结果 | 源 | 目标 | 类型 | 方式 | 耗时(s) | 说明 |\n"
+                  "| --- | --- | --- | --- | --- | --- | --- |\n"
+                  f"| {icon} | {cell(SRC)} | {cell(DST)} | {repo_type} | {mode} | {elapsed} | {cell(message)} |"
+              )
+
+          def die(message):
+              print("::error::" + redact(message), flush=True)
+              report(False, message)
+              sys.exit(1)
+
+          # ---------- 读取这一对账号的配置和 token ----------
+          raw = (os.environ.get("HF_MIRROR_CONFIG") or "").strip()
+          if not raw:
+              die("仓库 Variable HF_MIRROR_CONFIG 为空")
+          try:
+              pairs = json.loads(raw)
+          except json.JSONDecodeError as exc:
+              die(f"HF_MIRROR_CONFIG 不是合法 JSON: {exc}")
+          if not isinstance(pairs, list) or PAIR_INDEX >= len(pairs):
+              die(f"配置里找不到第 {PAIR_INDEX} 组账号")
+
+          pair = pairs[PAIR_INDEX]
+          repos = pair.get("repos") or []
+          if REPO_INDEX >= len(repos):
+              die(f"第 {PAIR_INDEX} 组配置里找不到第 {REPO_INDEX} 个仓库映射")
+
+          SRC_TOKEN = str(pair.get("source_token") or "").strip()
+          DST_TOKEN = str(pair.get("target_token") or "").strip()
+          mask(SRC_TOKEN)
+          mask(DST_TOKEN)
+          if not DST_TOKEN:
+              die(f"第 {PAIR_INDEX} 组缺少 target_token")
+
+          # ---------- Hugging Face API ----------
+          def api(method, path, token, payload=None):
+              data = json.dumps(payload).encode("utf-8") if payload is not None else None
+              request = urllib.request.Request(HF + path, data=data, method=method)
+              request.add_header("User-Agent", "hf-mirror-action")
+              request.add_header("Accept", "application/json")
+              if token:
+                  request.add_header("Authorization", "Bearer " + token)
+              if data is not None:
+                  request.add_header("Content-Type", "application/json")
+              try:
+                  with urllib.request.urlopen(request, timeout=60) as response:
+                      body = response.read().decode("utf-8", "replace")
+                      return response.status, (json.loads(body) if body.strip() else {})
+              except urllib.error.HTTPError as exc:
+                  body = exc.read().decode("utf-8", "replace")
+                  try:
+                      parsed = json.loads(body) if body.strip() else {}
+                  except json.JSONDecodeError:
+                      parsed = {"error": body}
+                  return exc.code, parsed
+              except urllib.error.URLError as exc:
+                  die(f"访问 Hugging Face 失败: {exc.reason}")
+
+          def repo_info(repo_type, repo_id, token):
+              return api("GET", f"/api/{API_PREFIX[repo_type]}/{repo_id}", token)
+
+          def detect_type(repo_id, token):
+              if TYPE_HINT in API_PREFIX:
+                  status, info = repo_info(TYPE_HINT, repo_id, token)
+                  if status != 200:
+                      die(f"无法读取源仓库 {repo_id}（type={TYPE_HINT}, HTTP {status}）")
+                  return TYPE_HINT, info
+              for candidate in ("dataset", "space", "model"):
+                  status, info = repo_info(candidate, repo_id, token)
+                  if status == 200:
+                      return candidate, info
+              die(f"找不到源仓库 {repo_id}，或 source_token 没有读权限")
+
+          def namespace_payload(repo_type, target, token, private, space_sdk):
+              owner, name = target.split("/", 1)
+              status, me = api("GET", "/api/whoami-v2", token)
+              if status != 200:
+                  die(f"target_token 无效（whoami HTTP {status}）")
+              payload = {"name": name, "type": repo_type, "private": private}
+              if me.get("name") != owner:
+                  orgs = {org.get("name") for org in (me.get("orgs") or []) if isinstance(org, dict)}
+                  if owner not in orgs:
+                      die(f"target_token 不属于账号 {owner}，也没有该组织的权限")
+                  payload["organization"] = owner
+              if repo_type == "space":
+                  payload["sdk"] = space_sdk or "docker"
+              return payload
+
+          def ensure_target(repo_type, target, token, upstream, private):
+              status, _ = repo_info(repo_type, target, token)
+              if status == 200:
+                  print(f"目标仓库已存在: {target}", flush=True)
+                  return False
+              if status not in (401, 403, 404):
+                  die(f"检查目标仓库 {target} 失败: HTTP {status}")
+
+              if DRY_RUN:
+                  print(f"[dry-run] 将创建目标仓库: {target} (type={repo_type}, private={private})", flush=True)
+                  return True
+
+              payload = namespace_payload(
+                  repo_type, target, token, private, upstream.get("sdk") if upstream else None
+              )
+              status, data = api("POST", "/api/repos/create", token, payload)
+              if status in (200, 201):
+                  print(f"✅ 已创建目标仓库: {target} (private={private})", flush=True)
+                  return True
+              if status == 409:
+                  # 已经存在（可能是别人建的），再确认一次 token 能不能访问
+                  again, _ = repo_info(repo_type, target, token)
+                  if again == 200:
+                      print(f"目标仓库已存在: {target}", flush=True)
+                      return False
+                  die(
+                      f"目标仓库 {target} 已存在，但 target_token 读不到它（HTTP {again}）；"
+                      f"请确认 token 属于账号 {target.split('/', 1)[0]} 或对应组织，且有 write 权限"
+                  )
+              die(f"创建目标仓库 {target} 失败: HTTP {status} {data.get('error', '')}")
+
+          # ---------- git 同步 ----------
+          def repo_url(repo_type, repo_id, token):
+              path = f"{GIT_PREFIX[repo_type]}{repo_id}"
+              if token:
+                  return f"https://user:{token}@huggingface.co/{path}"
+              return f"https://huggingface.co/{path}"
+
+          def git_env():
+              env = dict(os.environ)
+              env["GIT_TERMINAL_PROMPT"] = "0"
+              env["GCM_INTERACTIVE"] = "never"
+              env["GIT_LFS_SKIP_SMUDGE"] = "1"
+              return env
+
+          def run(cmd, cwd=None, check=True):
+              print("$ " + " ".join(redact(part) for part in cmd), flush=True)
+              proc = subprocess.run(cmd, cwd=cwd, env=git_env(), text=True, capture_output=True)
+              output = ((proc.stdout or "") + (proc.stderr or "")).strip()
+              if output:
+                  print(redact(output), flush=True)
+              if check and proc.returncode != 0:
+                  raise RuntimeError(f"命令失败（退出码 {proc.returncode}）: {cmd[0]}")
+              return proc
+
+          def sync_git(repo_type, source, target, src_token, dst_token, allow_force):
+              workdir = Path(tempfile.mkdtemp(prefix="hf-mirror-", dir=os.environ.get("RUNNER_TEMP") or None))
+              mirror = workdir / "repo.git"
+              try:
+                  src_url = repo_url(repo_type, source, src_token)
+                  dst_url = repo_url(repo_type, target, dst_token)
+                  print(f"克隆源仓库（bare）: {source}", flush=True)
+                  run(["git", "clone", "--bare", "--quiet", src_url, str(mirror)])
+                  # bare 仓库里尽量装好 LFS hook；失败不致命，下面会显式推 LFS 对象
+                  run(["git", "lfs", "install", "--local"], cwd=mirror, check=False)
+                  run(["git", "lfs", "fetch", "--all", "origin"], cwd=mirror, check=False)
+                  run(["git", "lfs", "push", "--all", dst_url], cwd=mirror, check=False)
+
+                  refspecs = ["refs/heads/*:refs/heads/*", "refs/tags/*:refs/tags/*"]
+                  if allow_force:
+                      refspecs = ["+" + refspec for refspec in refspecs]
+                  cmd = ["git", "push", "--prune"]
+                  if allow_force:
+                      cmd.append("--force")
+                  cmd += [dst_url, *refspecs]
+                  run(cmd, cwd=mirror)
+              finally:
+                  shutil.rmtree(workdir, ignore_errors=True)
+
+          # ---------- 主流程 ----------
+          try:
+              repo_type, upstream = detect_type(SRC, SRC_TOKEN)
+              if PRIVATE_HINT in ("true", "false"):
+                  private = PRIVATE_HINT == "true"
+              else:
+                  private = bool(upstream.get("private", False))
+
+              print(
+                  f"源: {SRC}（type={repo_type}, private={upstream.get('private')}）",
+                  flush=True,
+              )
+              print(f"目标: {DST}（private={private}）", flush=True)
+
+              created = ensure_target(repo_type, DST, DST_TOKEN, upstream, private)
+              allow_force = FORCE or created
+
+              if DRY_RUN:
+                  report(True, "dry-run：未推送", repo_type, "git")
+                  sys.exit(0)
+
+              print(f"开始推送（force={allow_force}）", flush=True)
+              sync_git(repo_type, SRC, DST, SRC_TOKEN, DST_TOKEN, allow_force)
+              report(True, "推送完成", repo_type, "git" + ("+force" if allow_force else ""))
+          except SystemExit:
+              raise
+          except Exception as exc:
+              hint = ""
+              if not FORCE:
+                  hint = "；目标端历史与源不一致时可加 force: true 重跑"
+              die(str(exc) + hint)
+          PY
