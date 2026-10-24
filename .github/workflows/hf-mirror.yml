@@ -48,8 +48,11 @@ name: HF Mirror (dataset / space -> 多账号)
 #
 # 同步方式：按文件内容哈希比对，只下载/上传有变化的文件，不再 clone 整个仓库。
 # 目标仓库不存在会自动创建；源和目标完全一致时直接跳过，不产生任何下载。
+# 首次同步（或改动很大时）会按批次下载 -> 提交 -> 删除本地文件，磁盘占用被限制在
+# 单批大小（默认 20 GB，可用仓库 Variable HF_MIRROR_BATCH_GB 调整），500G 的仓库
+# 也不会把 runner 磁盘塞满；只有单个文件就超过 runner 可用磁盘时才需要自建 runner。
 # 注意：这是「内容镜像」，只同步默认分支（main）的文件内容，不保留提交历史/tag；
-#       目标端每次有变化会生成一个 commit。
+#       目标端每批变化会生成一个 commit。
 # 注意：Variable 里存的是明文，能改仓库配置的人都看得到，建议用只带 write 权限的独立 token。
 # ============================================================================
 
@@ -73,6 +76,7 @@ concurrency:
 
 env:
   HF_MIRROR_CONFIG: ${{ vars.HF_MIRROR_CONFIG }}
+  HF_MIRROR_BATCH_GB: ${{ vars.HF_MIRROR_BATCH_GB }}
   HF_MIRROR_DRY_RUN: ${{ inputs.dry_run }}
 
 jobs:
@@ -300,6 +304,7 @@ jobs:
               "on",
           )
           CHUNK = 100
+          BATCH_FILES = 200
 
           SECRETS = []
 
@@ -426,7 +431,10 @@ jobs:
                       continue
                   lfs = getattr(entry, "lfs", None)
                   oid = getattr(lfs, "sha256", None) if lfs else None
-                  files[entry.path] = oid or getattr(entry, "blob_id", None) or f"size:{entry.size}"
+                  files[entry.path] = {
+                      "oid": oid or getattr(entry, "blob_id", None) or f"size:{entry.size}",
+                      "size": int(entry.size),
+                  }
               return files
 
           # ---------- 主流程 ----------
@@ -445,7 +453,11 @@ jobs:
               src_files = file_tree(api_src, repo_type, SRC, SRC_TOKEN)
               dst_files = {} if created else file_tree(api_dst, repo_type, DST, DST_TOKEN)
 
-              changed = sorted(path for path, oid in src_files.items() if dst_files.get(path) != oid)
+              changed = sorted(
+                  (path, info["size"])
+                  for path, info in src_files.items()
+                  if (dst_files.get(path) or {}).get("oid") != info["oid"]
+              )
               deleted = sorted(path for path in dst_files if path not in src_files)
 
               if not changed and not deleted:
@@ -453,8 +465,13 @@ jobs:
                   report(True, "已是最新，跳过", repo_type, "skip")
                   sys.exit(0)
 
-              print(f"需要同步: 新增/更新 {len(changed)} 个文件，删除 {len(deleted)} 个文件", flush=True)
-              for path in changed[:10]:
+              total_bytes = sum(size for _, size in changed)
+              print(
+                  f"需要同步: 新增/更新 {len(changed)} 个文件（{total_bytes / 1024**3:.1f} GB），"
+                  f"删除 {len(deleted)} 个文件",
+                  flush=True,
+              )
+              for path, _ in changed[:10]:
                   print(f"  M {path}", flush=True)
               if len(changed) > 10:
                   print(f"  ... 另外 {len(changed) - 10} 个更新", flush=True)
@@ -472,35 +489,91 @@ jobs:
 
               workdir = Path(tempfile.mkdtemp(prefix="hf-mirror-", dir=os.environ.get("RUNNER_TEMP") or None))
               try:
-                  def download(path):
-                      return path, hf_hub_download(
-                          repo_id=SRC,
-                          filename=path,
-                          repo_type=repo_type,
-                          token=SRC_TOKEN,
-                          local_dir=str(workdir),
+                  free = shutil.disk_usage(str(workdir)).free
+                  try:
+                      batch_gb = float(os.environ.get("HF_MIRROR_BATCH_GB") or 20)
+                  except ValueError:
+                      die(f"HF_MIRROR_BATCH_GB 不是数字: {os.environ.get('HF_MIRROR_BATCH_GB')}")
+                  if batch_gb <= 0:
+                      die(f"HF_MIRROR_BATCH_GB 必须大于 0: {batch_gb}")
+                  # 每批最多占多少磁盘：配置值，且不超过可用空间的 60%
+                  budget = min(int(batch_gb * 1024**3), int(free * 0.6))
+                  if budget <= 0:
+                      die(f"runner 可用磁盘不足: {free} 字节")
+                  print(
+                      f"批次预算: {budget / 1024**3:.1f} GB / 批"
+                      f"（runner 可用磁盘 {free / 1024**3:.1f} GB）",
+                      flush=True,
+                  )
+
+                  for path, size in changed:
+                      if size > free * 0.8:
+                          die(
+                              f"单个文件 {path} 有 {size / 1024**3:.1f} GB，"
+                              f"超过 runner 可用磁盘 {free / 1024**3:.1f} GB，"
+                              "托管 runner 无法同步，请改用自建 runner"
+                          )
+
+                  # 按字节预算切批：下载一批 -> 提交 -> 删掉本地文件 -> 下一批
+                  batches = []
+                  current, current_bytes = [], 0
+                  for path, size in changed:
+                      if current and (current_bytes + size > budget or len(current) >= BATCH_FILES):
+                          batches.append((current, current_bytes))
+                          current, current_bytes = [], 0
+                      current.append(path)
+                      current_bytes += size
+                  if current:
+                      batches.append((current, current_bytes))
+                  if not batches and deleted:
+                      batches = [([], 0)]
+
+                  done = 0
+                  for index, (batch, batch_bytes) in enumerate(batches, 1):
+                      batch_dir = workdir / f"batch-{index}"
+                      batch_dir.mkdir(parents=True, exist_ok=True)
+
+                      def download(path):
+                          return path, hf_hub_download(
+                              repo_id=SRC,
+                              filename=path,
+                              repo_type=repo_type,
+                              token=SRC_TOKEN,
+                              local_dir=str(batch_dir),
+                          )
+
+                      with ThreadPoolExecutor(max_workers=8) as pool:
+                          downloaded = list(pool.map(download, batch))
+
+                      operations = [
+                          CommitOperationAdd(path_in_repo=path, path_or_fileobj=local)
+                          for path, local in downloaded
+                      ]
+                      # 删除操作不占磁盘，放进第一批提交
+                      if index == 1:
+                          operations += [CommitOperationDelete(path_in_repo=path) for path in deleted]
+
+                      message = f"Sync from {SRC} (batch {index}/{len(batches)}, {len(batch)} files)"
+                      for start in range(0, len(operations), CHUNK):
+                          api_dst.create_commit(
+                              repo_id=DST,
+                              repo_type=repo_type,
+                              operations=operations[start : start + CHUNK],
+                              commit_message=message,
+                          )
+
+                      done += len(batch)
+                      print(
+                          f"[{index}/{len(batches)}] 已提交 {len(batch)} 个文件"
+                          f"（{batch_bytes / 1024**3:.1f} GB），累计 {done}/{len(changed)}",
+                          flush=True,
                       )
+                      shutil.rmtree(batch_dir, ignore_errors=True)
 
-                  with ThreadPoolExecutor(max_workers=8) as pool:
-                      downloaded = list(pool.map(download, changed))
-
-                  operations = [
-                      CommitOperationAdd(path_in_repo=path, path_or_fileobj=local)
-                      for path, local in downloaded
-                  ]
-                  operations += [CommitOperationDelete(path_in_repo=path) for path in deleted]
-
-                  message = f"Sync from {SRC} ({len(changed)} updated, {len(deleted)} deleted)"
-                  for start in range(0, len(operations), CHUNK):
-                      api_dst.create_commit(
-                          repo_id=DST,
-                          repo_type=repo_type,
-                          operations=operations[start : start + CHUNK],
-                          commit_message=message,
-                      )
                   report(
                       True,
-                      f"新增/更新 {len(changed)} 个文件，删除 {len(deleted)} 个文件",
+                      f"新增/更新 {len(changed)} 个文件，删除 {len(deleted)} 个文件"
+                      f"（{len(batches)} 批）",
                       repo_type,
                       "incremental",
                   )
