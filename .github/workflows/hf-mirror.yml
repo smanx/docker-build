@@ -46,7 +46,10 @@ name: HF Mirror (dataset / space -> 多账号)
 # 已存在的目标仓库不会被改公开/私有，源仓库永远不动。
 # 优先级：映射里的 private > 本组 private > 跟随源仓库的可见性。
 #
-# 同步方式：git bare clone + push（保留提交历史、tag、LFS 对象），目标仓库不存在会自动创建。
+# 同步方式：按文件内容哈希比对，只下载/上传有变化的文件，不再 clone 整个仓库。
+# 目标仓库不存在会自动创建；源和目标完全一致时直接跳过，不产生任何下载。
+# 注意：这是「内容镜像」，只同步默认分支（main）的文件内容，不保留提交历史/tag；
+#       目标端每次有变化会生成一个 commit。
 # 注意：Variable 里存的是明文，能改仓库配置的人都看得到，建议用只带 write 权限的独立 token。
 # ============================================================================
 
@@ -55,13 +58,8 @@ on:
     - cron: '0 19 * * *'   # 每天凌晨 3 点（北京时间，UTC+8）= UTC 19:00
   workflow_dispatch:
     inputs:
-      force:
-        description: '强制推送（用源覆盖目标端历史）'
-        required: false
-        type: boolean
-        default: false
       dry_run:
-        description: '只检查配置和仓库，不实际推送'
+        description: '只检查配置和仓库差异，不实际写入'
         required: false
         type: boolean
         default: false
@@ -75,7 +73,6 @@ concurrency:
 
 env:
   HF_MIRROR_CONFIG: ${{ vars.HF_MIRROR_CONFIG }}
-  HF_MIRROR_FORCE: ${{ inputs.force }}
   HF_MIRROR_DRY_RUN: ${{ inputs.dry_run }}
 
 jobs:
@@ -265,9 +262,10 @@ jobs:
       REPO_TYPE: ${{ matrix.type }}
       TARGET_PRIVATE: ${{ matrix.private }}
     steps:
-      - name: 磁盘空间
-        run: df -h /
+      - name: 安装依赖
+        run: pip install "huggingface_hub>=0.23"
 
+      # 按文件哈希比对，只下载/上传有变化的文件，不 clone 整个仓库
       - name: 同步 ${{ matrix.source }} -> ${{ matrix.target }}
         run: |
           python3 - <<'PY'
@@ -275,17 +273,18 @@ jobs:
           import os
           import re
           import shutil
-          import subprocess
           import sys
           import tempfile
           import time
-          import urllib.error
-          import urllib.request
+          from concurrent.futures import ThreadPoolExecutor
           from pathlib import Path
 
-          HF = "https://huggingface.co"
-          API_PREFIX = {"dataset": "datasets", "space": "spaces", "model": "models"}
-          GIT_PREFIX = {"dataset": "datasets/", "space": "spaces/", "model": ""}
+          from huggingface_hub import (
+              CommitOperationAdd,
+              CommitOperationDelete,
+              HfApi,
+              hf_hub_download,
+          )
 
           SRC = os.environ["SRC_REPO"]
           DST = os.environ["DST_REPO"]
@@ -294,12 +293,13 @@ jobs:
           PAIR_INDEX = int(os.environ.get("PAIR_INDEX") or 0)
           REPO_INDEX = int(os.environ.get("REPO_INDEX") or 0)
           STARTED = time.time()
-
-          def truthy(name):
-              return (os.environ.get(name) or "").strip().lower() in ("1", "true", "yes", "on")
-
-          DRY_RUN = truthy("HF_MIRROR_DRY_RUN")
-          FORCE = truthy("HF_MIRROR_FORCE")
+          DRY_RUN = (os.environ.get("HF_MIRROR_DRY_RUN") or "").strip().lower() in (
+              "1",
+              "true",
+              "yes",
+              "on",
+          )
+          CHUNK = 100
 
           SECRETS = []
 
@@ -324,7 +324,7 @@ jobs:
                       handle.write(markdown + "\n")
               print(markdown, flush=True)
 
-          def report(ok, message, repo_type="-", mode="git"):
+          def report(ok, message, repo_type="-", mode="incremental"):
               icon = "✅" if ok else "❌"
               elapsed = round(time.time() - STARTED, 1)
               write_summary(
@@ -361,219 +361,153 @@ jobs:
           if not DST_TOKEN:
               die(f"第 {PAIR_INDEX} 组缺少 target_token")
 
-          # ---------- Hugging Face API ----------
-          def api(method, path, token, payload=None):
-              data = json.dumps(payload).encode("utf-8") if payload is not None else None
-              request = urllib.request.Request(HF + path, data=data, method=method)
-              request.add_header("User-Agent", "hf-mirror-action")
-              request.add_header("Accept", "application/json")
-              if token:
-                  request.add_header("Authorization", "Bearer " + token)
-              if data is not None:
-                  request.add_header("Content-Type", "application/json")
-              try:
-                  with urllib.request.urlopen(request, timeout=60) as response:
-                      body = response.read().decode("utf-8", "replace")
-                      return response.status, (json.loads(body) if body.strip() else {})
-              except urllib.error.HTTPError as exc:
-                  body = exc.read().decode("utf-8", "replace")
+          api_src = HfApi(token=SRC_TOKEN)
+          api_dst = HfApi(token=DST_TOKEN)
+
+          # ---------- 探测源仓库 ----------
+          def detect_type():
+              if TYPE_HINT in ("dataset", "space", "model"):
                   try:
-                      parsed = json.loads(body) if body.strip() else {}
-                  except json.JSONDecodeError:
-                      parsed = {"error": body}
-                  return exc.code, parsed
-              except urllib.error.URLError as exc:
-                  die(f"访问 Hugging Face 失败: {exc.reason}")
-
-          def repo_info(repo_type, repo_id, token):
-              return api("GET", f"/api/{API_PREFIX[repo_type]}/{repo_id}", token)
-
-          def detect_type(repo_id, token):
-              if TYPE_HINT in API_PREFIX:
-                  status, info = repo_info(TYPE_HINT, repo_id, token)
-                  if status != 200:
-                      die(f"无法读取源仓库 {repo_id}（type={TYPE_HINT}, HTTP {status}）")
-                  return TYPE_HINT, info
+                      return TYPE_HINT, api_src.repo_info(SRC, repo_type=TYPE_HINT)
+                  except Exception as exc:
+                      die(f"无法读取源仓库 {SRC}（type={TYPE_HINT}）: {exc}")
+              last_error = None
               for candidate in ("dataset", "space", "model"):
-                  status, info = repo_info(candidate, repo_id, token)
-                  if status == 200:
-                      return candidate, info
-              die(f"找不到源仓库 {repo_id}，或 source_token 没有读权限")
+                  try:
+                      return candidate, api_src.repo_info(SRC, repo_type=candidate)
+                  except Exception as exc:
+                      last_error = exc
+              die(f"找不到源仓库 {SRC}，或 source_token 没有读权限: {last_error}")
 
-          def refs_map(repo_type, repo_id, token):
-              """返回 {refs/heads/xxx 或 refs/tags/xxx: commit}；读不到返回 None。"""
-              status, data = api("GET", f"/api/{API_PREFIX[repo_type]}/{repo_id}/refs", token)
-              if status != 200:
-                  return None
-              result = {}
-              for kind, prefix in (("branches", "refs/heads/"), ("tags", "refs/tags/")):
-                  for item in data.get(kind) or []:
-                      if not isinstance(item, dict):
-                          continue
-                      name = item.get("name")
-                      commit = item.get("targetCommit") or item.get("commit")
-                      if not name or not commit:
-                          continue
-                      result[prefix + name] = commit
-              return result
-
-          def describe_diff(src_refs, dst_refs):
-              added = sorted(set(src_refs) - set(dst_refs))
-              missing = sorted(set(dst_refs) - set(src_refs))
-              changed = sorted(r for r in set(src_refs) & set(dst_refs) if src_refs[r] != dst_refs[r])
-              parts = []
-              if added:
-                  parts.append(f"目标缺少 {len(added)} 个（{', '.join(added[:3])}）")
-              if missing:
-                  parts.append(f"目标多出 {len(missing)} 个（{', '.join(missing[:3])}）")
-              if changed:
-                  parts.append(f"提交不同 {len(changed)} 个（{', '.join(changed[:3])}）")
-              return "；".join(parts)
-
-          def namespace_payload(repo_type, target, token, private, space_sdk):
-              owner, name = target.split("/", 1)
-              status, me = api("GET", "/api/whoami-v2", token)
-              if status != 200:
-                  die(f"target_token 无效（whoami HTTP {status}）")
-              payload = {"name": name, "type": repo_type, "private": private}
-              if me.get("name") != owner:
-                  orgs = {org.get("name") for org in (me.get("orgs") or []) if isinstance(org, dict)}
-                  if owner not in orgs:
-                      die(f"target_token 不属于账号 {owner}，也没有该组织的权限")
-                  payload["organization"] = owner
-              if repo_type == "space":
-                  payload["sdk"] = space_sdk or "docker"
-              return payload
-
-          def ensure_target(repo_type, target, token, upstream, private):
-              status, info = repo_info(repo_type, target, token)
-              if status == 200:
-                  current = bool(info.get("private", False))
+          def ensure_target(repo_type, upstream, private):
+              try:
+                  info = api_dst.repo_info(DST, repo_type=repo_type)
+                  current = bool(info.private)
                   if current != private:
                       print(
-                          f"⚠️ 目标仓库已存在: {target}（当前 private={current}，"
+                          f"⚠️ 目标仓库已存在: {DST}（当前 private={current}，"
                           f"配置为 {private}，不会自动修改）",
                           flush=True,
                       )
                   else:
-                      print(f"目标仓库已存在: {target} (private={current})", flush=True)
+                      print(f"目标仓库已存在: {DST} (private={current})", flush=True)
                   return False
-              if status not in (401, 403, 404):
-                  die(f"检查目标仓库 {target} 失败: HTTP {status}")
+              except Exception as exc:
+                  print(f"目标仓库不存在或无权访问（{type(exc).__name__}），准备创建: {DST}", flush=True)
 
               if DRY_RUN:
-                  print(f"[dry-run] 将创建目标仓库: {target} (type={repo_type}, private={private})", flush=True)
-                  return True
-
-              payload = namespace_payload(
-                  repo_type, target, token, private, upstream.get("sdk") if upstream else None
-              )
-              status, data = api("POST", "/api/repos/create", token, payload)
-              if status in (200, 201):
-                  print(f"✅ 已创建目标仓库: {target} (private={private})", flush=True)
-                  return True
-              if status == 409:
-                  # 已经存在（可能是别人建的），再确认一次 token 能不能访问
-                  again, _ = repo_info(repo_type, target, token)
-                  if again == 200:
-                      print(f"目标仓库已存在: {target}", flush=True)
-                      return False
-                  die(
-                      f"目标仓库 {target} 已存在，但 target_token 读不到它（HTTP {again}）；"
-                      f"请确认 token 属于账号 {target.split('/', 1)[0]} 或对应组织，且有 write 权限"
+                  print(
+                      f"[dry-run] 将创建目标仓库: {DST} (type={repo_type}, private={private})",
+                      flush=True,
                   )
-              die(f"创建目标仓库 {target} 失败: HTTP {status} {data.get('error', '')}")
+                  return True
 
-          # ---------- git 同步 ----------
-          def repo_url(repo_type, repo_id, token):
-              path = f"{GIT_PREFIX[repo_type]}{repo_id}"
-              if token:
-                  return f"https://user:{token}@huggingface.co/{path}"
-              return f"https://huggingface.co/{path}"
-
-          def git_env():
-              env = dict(os.environ)
-              env["GIT_TERMINAL_PROMPT"] = "0"
-              env["GCM_INTERACTIVE"] = "never"
-              env["GIT_LFS_SKIP_SMUDGE"] = "1"
-              return env
-
-          def run(cmd, cwd=None, check=True):
-              print("$ " + " ".join(redact(part) for part in cmd), flush=True)
-              proc = subprocess.run(cmd, cwd=cwd, env=git_env(), text=True, capture_output=True)
-              output = ((proc.stdout or "") + (proc.stderr or "")).strip()
-              if output:
-                  print(redact(output), flush=True)
-              if check and proc.returncode != 0:
-                  raise RuntimeError(f"命令失败（退出码 {proc.returncode}）: {cmd[0]}")
-              return proc
-
-          def sync_git(repo_type, source, target, src_token, dst_token, allow_force):
-              workdir = Path(tempfile.mkdtemp(prefix="hf-mirror-", dir=os.environ.get("RUNNER_TEMP") or None))
-              mirror = workdir / "repo.git"
+              kwargs = {"repo_id": DST, "repo_type": repo_type, "private": private, "exist_ok": True}
+              if repo_type == "space":
+                  kwargs["space_sdk"] = getattr(upstream, "sdk", None) or "docker"
               try:
-                  src_url = repo_url(repo_type, source, src_token)
-                  dst_url = repo_url(repo_type, target, dst_token)
-                  print(f"克隆源仓库（bare）: {source}", flush=True)
-                  run(["git", "clone", "--bare", "--quiet", src_url, str(mirror)])
-                  # bare 仓库里尽量装好 LFS hook；失败不致命，下面会显式推 LFS 对象
-                  run(["git", "lfs", "install", "--local"], cwd=mirror, check=False)
-                  run(["git", "lfs", "fetch", "--all", "origin"], cwd=mirror, check=False)
-                  run(["git", "lfs", "push", "--all", dst_url], cwd=mirror, check=False)
+                  api_dst.create_repo(**kwargs)
+              except Exception as exc:
+                  die(f"创建目标仓库 {DST} 失败（token 需要属于该账号/组织）: {exc}")
+              print(f"✅ 已创建目标仓库: {DST} (private={private})", flush=True)
+              return True
 
-                  refspecs = ["refs/heads/*:refs/heads/*", "refs/tags/*:refs/tags/*"]
-                  if allow_force:
-                      refspecs = ["+" + refspec for refspec in refspecs]
-                  cmd = ["git", "push", "--prune"]
-                  if allow_force:
-                      cmd.append("--force")
-                  cmd += [dst_url, *refspecs]
-                  run(cmd, cwd=mirror)
-              finally:
-                  shutil.rmtree(workdir, ignore_errors=True)
+          # ---------- 文件树比对（内容哈希） ----------
+          def file_tree(api, repo_type, repo_id, token):
+              files = {}
+              for entry in api.list_repo_tree(
+                  repo_id=repo_id,
+                  repo_type=repo_type,
+                  recursive=True,
+                  expand=True,
+                  token=token,
+              ):
+                  if getattr(entry, "size", None) is None:
+                      continue
+                  lfs = getattr(entry, "lfs", None)
+                  oid = getattr(lfs, "sha256", None) if lfs else None
+                  files[entry.path] = oid or getattr(entry, "blob_id", None) or f"size:{entry.size}"
+              return files
 
           # ---------- 主流程 ----------
           try:
-              repo_type, upstream = detect_type(SRC, SRC_TOKEN)
+              repo_type, upstream = detect_type()
               if PRIVATE_HINT in ("true", "false"):
                   private = PRIVATE_HINT == "true"
               else:
-                  private = bool(upstream.get("private", False))
+                  private = bool(getattr(upstream, "private", False))
 
-              print(
-                  f"源: {SRC}（type={repo_type}, private={upstream.get('private')}）",
-                  flush=True,
-              )
+              print(f"源: {SRC}（type={repo_type}, private={getattr(upstream, 'private', None)}）", flush=True)
               print(f"目标: {DST}（private={private}）", flush=True)
 
-              created = ensure_target(repo_type, DST, DST_TOKEN, upstream, private)
-              allow_force = FORCE or created
+              created = ensure_target(repo_type, upstream, private)
 
-              # 已经存在就先比对 refs（分支 + tag 的最新提交），完全一致直接跳过，不 clone
-              if not created:
-                  src_refs = refs_map(repo_type, SRC, SRC_TOKEN)
-                  dst_refs = refs_map(repo_type, DST, DST_TOKEN)
-                  if src_refs is not None and dst_refs is not None:
-                      if src_refs == dst_refs:
-                          print("源和目标的分支/tag 提交完全一致，跳过同步", flush=True)
-                          report(True, "已是最新，跳过", repo_type, "skip")
-                          sys.exit(0)
-                      print("检测到差异: " + describe_diff(src_refs, dst_refs), flush=True)
-                  else:
-                      print("无法读取 refs，改为直接同步", flush=True)
+              src_files = file_tree(api_src, repo_type, SRC, SRC_TOKEN)
+              dst_files = {} if created else file_tree(api_dst, repo_type, DST, DST_TOKEN)
 
-              if DRY_RUN:
-                  report(True, "dry-run：未推送", repo_type, "git")
+              changed = sorted(path for path, oid in src_files.items() if dst_files.get(path) != oid)
+              deleted = sorted(path for path in dst_files if path not in src_files)
+
+              if not changed and not deleted:
+                  print("源和目标文件内容完全一致，跳过同步", flush=True)
+                  report(True, "已是最新，跳过", repo_type, "skip")
                   sys.exit(0)
 
-              print(f"开始推送（force={allow_force}）", flush=True)
-              sync_git(repo_type, SRC, DST, SRC_TOKEN, DST_TOKEN, allow_force)
-              report(True, "推送完成", repo_type, "git" + ("+force" if allow_force else ""))
+              print(f"需要同步: 新增/更新 {len(changed)} 个文件，删除 {len(deleted)} 个文件", flush=True)
+              for path in changed[:10]:
+                  print(f"  M {path}", flush=True)
+              if len(changed) > 10:
+                  print(f"  ... 另外 {len(changed) - 10} 个更新", flush=True)
+              for path in deleted[:10]:
+                  print(f"  D {path}", flush=True)
+
+              if DRY_RUN:
+                  report(
+                      True,
+                      f"dry-run：将写入 {len(changed)} 个、删除 {len(deleted)} 个文件",
+                      repo_type,
+                      "incremental",
+                  )
+                  sys.exit(0)
+
+              workdir = Path(tempfile.mkdtemp(prefix="hf-mirror-", dir=os.environ.get("RUNNER_TEMP") or None))
+              try:
+                  def download(path):
+                      return path, hf_hub_download(
+                          repo_id=SRC,
+                          filename=path,
+                          repo_type=repo_type,
+                          token=SRC_TOKEN,
+                          local_dir=str(workdir),
+                      )
+
+                  with ThreadPoolExecutor(max_workers=8) as pool:
+                      downloaded = list(pool.map(download, changed))
+
+                  operations = [
+                      CommitOperationAdd(path_in_repo=path, path_or_fileobj=local)
+                      for path, local in downloaded
+                  ]
+                  operations += [CommitOperationDelete(path_in_repo=path) for path in deleted]
+
+                  message = f"Sync from {SRC} ({len(changed)} updated, {len(deleted)} deleted)"
+                  for start in range(0, len(operations), CHUNK):
+                      api_dst.create_commit(
+                          repo_id=DST,
+                          repo_type=repo_type,
+                          operations=operations[start : start + CHUNK],
+                          commit_message=message,
+                      )
+                  report(
+                      True,
+                      f"新增/更新 {len(changed)} 个文件，删除 {len(deleted)} 个文件",
+                      repo_type,
+                      "incremental",
+                  )
+              finally:
+                  shutil.rmtree(workdir, ignore_errors=True)
           except SystemExit:
               raise
           except Exception as exc:
-              hint = ""
-              if not FORCE:
-                  hint = "；目标端历史与源不一致时可加 force: true 重跑"
-              die(str(exc) + hint)
+              die(str(exc))
           PY
