@@ -51,6 +51,9 @@ name: HF Mirror (dataset / space -> 多账号)
 # 首次同步（或改动很大时）会按批次下载 -> 提交 -> 删除本地文件，磁盘占用被限制在
 # 单批大小（默认 20 GB，可用仓库 Variable HF_MIRROR_BATCH_GB 调整），500G 的仓库
 # 也不会把 runner 磁盘塞满；只有单个文件就超过 runner 可用磁盘时才需要自建 runner。
+# 本地下载统一用 00000.bin 这类短文件名，提交时再映射回原始路径，所以源仓库里
+# 超过 255 字节的中文长文件名也能正常同步；.gitattributes 会先单独提交一次，
+# 保证后续大文件按源仓库的 LFS 规则存储。
 # 注意：这是「内容镜像」，只同步默认分支（main）的文件内容，不保留提交历史/tag；
 #       目标端每批变化会生成一个 commit。
 # 注意：Variable 里存的是明文，能改仓库配置的人都看得到，建议用只带 write 权限的独立 token。
@@ -283,11 +286,12 @@ jobs:
           from concurrent.futures import ThreadPoolExecutor
           from pathlib import Path
 
+          import requests
           from huggingface_hub import (
               CommitOperationAdd,
               CommitOperationDelete,
               HfApi,
-              hf_hub_download,
+              hf_hub_url,
           )
 
           SRC = os.environ["SRC_REPO"]
@@ -514,46 +518,60 @@ jobs:
                               "托管 runner 无法同步，请改用自建 runner"
                           )
 
-                  # 按字节预算切批：下载一批 -> 提交 -> 删掉本地文件 -> 下一批
-                  batches = []
-                  current, current_bytes = [], 0
-                  for path, size in changed:
-                      if current and (current_bytes + size > budget or len(current) >= BATCH_FILES):
-                          batches.append((current, current_bytes))
-                          current, current_bytes = [], 0
-                      current.append(path)
-                      current_bytes += size
-                  if current:
-                      batches.append((current, current_bytes))
-                  if not batches and deleted:
-                      batches = [([], 0)]
+                  # 关键：本地文件名一律用 00000.bin 这种短名字。
+                  # 源仓库里的中文长文件名可能超过 Linux 单级目录 255 字节的限制，
+                  # 而 Hub 服务端只认 git 路径、不落本地磁盘，所以能存下；本地不能照搬。
+                  # path_in_repo 仍然用原始路径，内容会传到正确位置。
+                  headers = {"Authorization": f"Bearer {SRC_TOKEN}"} if SRC_TOKEN else {}
+                  seq = [0]
 
-                  done = 0
-                  for index, (batch, batch_bytes) in enumerate(batches, 1):
-                      batch_dir = workdir / f"batch-{index}"
-                      batch_dir.mkdir(parents=True, exist_ok=True)
+                  def short(text, limit=80):
+                      return text if len(text) <= limit else "…" + text[-(limit - 1) :]
 
-                      def download(path):
-                          return path, hf_hub_download(
-                              repo_id=SRC,
-                              filename=path,
-                              repo_type=repo_type,
-                              token=SRC_TOKEN,
-                              local_dir=str(batch_dir),
-                          )
+                  def sync_group(paths, message, deletes=()):
+                      seq[0] += 1
+                      group_dir = workdir / f"group-{seq[0]}"
+                      group_dir.mkdir(parents=True, exist_ok=True)
+
+                      def fetch(item):
+                          index, path = item
+                          target = group_dir / f"{index:05d}.bin"
+                          url = hf_hub_url(repo_id=SRC, filename=path, repo_type=repo_type)
+                          print(f"  ↓ {short(path)}", flush=True)
+                          last_error = None
+                          for attempt in range(3):
+                              try:
+                                  with requests.get(
+                                      url,
+                                      headers=headers,
+                                      stream=True,
+                                      timeout=(30, 600),
+                                  ) as response:
+                                      response.raise_for_status()
+                                      with open(target, "wb") as handle:
+                                          for chunk in response.iter_content(chunk_size=8 * 1024 * 1024):
+                                              if chunk:
+                                                  handle.write(chunk)
+                                  print(
+                                      f"  ✓ {short(path)}（{target.stat().st_size / 1024**3:.2f} GB）",
+                                      flush=True,
+                                  )
+                                  return path, str(target)
+                              except Exception as exc:
+                                  last_error = exc
+                                  target.unlink(missing_ok=True)
+                                  if attempt < 2:
+                                      time.sleep(2 * (attempt + 1))
+                          raise RuntimeError(f"下载 {path} 失败: {last_error}")
 
                       with ThreadPoolExecutor(max_workers=8) as pool:
-                          downloaded = list(pool.map(download, batch))
+                          downloaded = list(pool.map(fetch, enumerate(paths)))
 
                       operations = [
                           CommitOperationAdd(path_in_repo=path, path_or_fileobj=local)
                           for path, local in downloaded
                       ]
-                      # 删除操作不占磁盘，放进第一批提交
-                      if index == 1:
-                          operations += [CommitOperationDelete(path_in_repo=path) for path in deleted]
-
-                      message = f"Sync from {SRC} (batch {index}/{len(batches)}, {len(batch)} files)"
+                      operations += [CommitOperationDelete(path_in_repo=path) for path in deletes]
                       for start in range(0, len(operations), CHUNK):
                           api_dst.create_commit(
                               repo_id=DST,
@@ -561,14 +579,56 @@ jobs:
                               operations=operations[start : start + CHUNK],
                               commit_message=message,
                           )
+                      shutil.rmtree(group_dir, ignore_errors=True)
 
+                  # .gitattributes 先单独提交一次，保证后面的大文件按源仓库的 LFS 规则存储。
+                  # 只有确实存在大文件、且不是 space 时才这样做（space 单独提交会触发一次失败构建）。
+                  attr_paths = [
+                      path
+                      for path, _ in changed
+                      if path == ".gitattributes" or path.endswith("/.gitattributes")
+                  ]
+                  pending = list(changed)
+                  pending_deletes = list(deleted)
+
+                  if (
+                      attr_paths
+                      and repo_type != "space"
+                      and any(size > 10 * 1024 * 1024 for _, size in pending)
+                  ):
+                      sync_group(attr_paths, f"Sync .gitattributes from {SRC}", pending_deletes)
+                      pending_deletes = []
+                      attr_set = set(attr_paths)
+                      pending = [(path, size) for path, size in pending if path not in attr_set]
+                      print(f"已先提交 {len(attr_paths)} 个 .gitattributes", flush=True)
+
+                  # 按字节预算切批：下载一批 -> 提交 -> 删掉本地文件 -> 下一批
+                  batches = []
+                  current, current_bytes = [], 0
+                  for path, size in pending:
+                      if current and (current_bytes + size > budget or len(current) >= BATCH_FILES):
+                          batches.append((current, current_bytes))
+                          current, current_bytes = [], 0
+                      current.append(path)
+                      current_bytes += size
+                  if current:
+                      batches.append((current, current_bytes))
+                  if not batches and pending_deletes:
+                      batches = [([], 0)]
+
+                  done = 0
+                  for index, (batch, batch_bytes) in enumerate(batches, 1):
+                      sync_group(
+                          batch,
+                          f"Sync from {SRC} (batch {index}/{len(batches)}, {len(batch)} files)",
+                          pending_deletes if index == 1 else (),
+                      )
                       done += len(batch)
                       print(
                           f"[{index}/{len(batches)}] 已提交 {len(batch)} 个文件"
-                          f"（{batch_bytes / 1024**3:.1f} GB），累计 {done}/{len(changed)}",
+                          f"（{batch_bytes / 1024**3:.1f} GB），累计 {done}/{len(pending)}",
                           flush=True,
                       )
-                      shutil.rmtree(batch_dir, ignore_errors=True)
 
                   report(
                       True,
