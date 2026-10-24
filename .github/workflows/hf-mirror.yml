@@ -35,12 +35,16 @@ name: HF Mirror (dataset / space -> 多账号)
 # 字段：
 #   source_account / target_account  账号名，可省略；省略时用对应 token 自动识别
 #   source_token / target_token      HF token；target_token 必填，源公开时 source_token 可留空
-#   private                          新建目标仓库的可见性，省略则跟随源仓库
+#   private                          可选：本组所有映射的默认可见性；省略则跟随源仓库
 #   repos[]                          仓库映射（1 对 1）
 #     source / target                仓库名（自动补账号前缀）或 owner/name；
 #                                    target 省略 = 和源同名
 #     type                           dataset / space / model / auto（默认 auto）
-#     private                        单独指定这个仓库的可见性
+#     private                        可选：覆盖本组的 private，仅对这条映射生效
+#
+# private 只作用于目标仓库，而且只在「目标仓库不存在、需要新建」时生效：
+# 已存在的目标仓库不会被改公开/私有，源仓库永远不动。
+# 优先级：映射里的 private > 本组 private > 跟随源仓库的可见性。
 #
 # 同步方式：git bare clone + push（保留提交历史、tag、LFS 对象），目标仓库不存在会自动创建。
 # 注意：Variable 里存的是明文，能改仓库配置的人都看得到，建议用只带 write 权限的独立 token。
@@ -51,11 +55,6 @@ on:
     - cron: '0 3 * * *'   # 每天 UTC 3 点
   workflow_dispatch:
     inputs:
-      only:
-        description: '只同步源/目标里包含这个关键字的映射（逗号分隔，留空为全部）'
-        required: false
-        type: string
-        default: ''
       force:
         description: '强制推送（用源覆盖目标端历史）'
         required: false
@@ -76,7 +75,6 @@ concurrency:
 
 env:
   HF_MIRROR_CONFIG: ${{ vars.HF_MIRROR_CONFIG }}
-  HF_MIRROR_ONLY: ${{ inputs.only }}
   HF_MIRROR_FORCE: ${{ inputs.force }}
   HF_MIRROR_DRY_RUN: ${{ inputs.dry_run }}
 
@@ -86,7 +84,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
-      has_work: ${{ steps.plan.outputs.has_work }}
     steps:
       - name: 解析配置
         id: plan
@@ -147,12 +144,6 @@ jobs:
 
           if not isinstance(pairs, list) or not pairs:
               die("HF_MIRROR_CONFIG 必须是 JSON 数组，且至少包含一对账号")
-
-          keywords = [
-              item.strip().lower()
-              for item in (os.environ.get("HF_MIRROR_ONLY") or "").split(",")
-              if item.strip()
-          ]
 
           include = []
           for pair_index, pair in enumerate(pairs):
@@ -227,8 +218,6 @@ jobs:
                   private_hint = "auto" if private is None else ("true" if private else "false")
 
                   label = f"{source} -> {target}"
-                  if keywords and not any(k in label.lower() for k in keywords):
-                      continue
 
                   include.append(
                       {
@@ -244,15 +233,12 @@ jobs:
 
           matrix = json.dumps({"include": include}, ensure_ascii=False, separators=(",", ":"))
           emit("matrix", matrix)
-          emit("has_work", "true" if include else "false")
 
           rows = ["| 源 | 目标 | 类型 | 新建可见性 |", "| --- | --- | --- | --- |"]
           for entry in include:
               rows.append(
                   f"| {entry['source']} | {entry['target']} | {entry['type']} | {entry['private']} |"
               )
-          if not include:
-              rows.append("| （没有匹配的映射） | - | - | - |")
 
           summary = "### HF Mirror 计划\n\n" + "\n".join(rows)
           print(f"计划完成: {len(include)} 个仓库映射", flush=True)
@@ -265,7 +251,6 @@ jobs:
   # 一个仓库映射一个 job，并行跑；单个失败不影响其他
   mirror:
     needs: plan
-    if: needs.plan.outputs.has_work == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 350
     strategy:
@@ -431,9 +416,17 @@ jobs:
               return payload
 
           def ensure_target(repo_type, target, token, upstream, private):
-              status, _ = repo_info(repo_type, target, token)
+              status, info = repo_info(repo_type, target, token)
               if status == 200:
-                  print(f"目标仓库已存在: {target}", flush=True)
+                  current = bool(info.get("private", False))
+                  if current != private:
+                      print(
+                          f"⚠️ 目标仓库已存在: {target}（当前 private={current}，"
+                          f"配置为 {private}，不会自动修改）",
+                          flush=True,
+                      )
+                  else:
+                      print(f"目标仓库已存在: {target} (private={current})", flush=True)
                   return False
               if status not in (401, 403, 404):
                   die(f"检查目标仓库 {target} 失败: HTTP {status}")
