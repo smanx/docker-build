@@ -18,7 +18,7 @@ on:
       repo_list:
         description: '仓库名列表（英文逗号分隔）'
         required: true
-        default: 'docker-build,docker-project,openai-zhuce'
+        default: 'docker-build,docker-project'
         type: string
       merge_strategy:
         description: '冲突合并策略'
