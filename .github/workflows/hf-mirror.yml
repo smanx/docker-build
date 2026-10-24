@@ -52,7 +52,7 @@ name: HF Mirror (dataset / space -> 多账号)
 
 on:
   schedule:
-    - cron: '0 3 * * *'   # 每天 UTC 3 点
+    - cron: '0 19 * * *'   # 每天凌晨 3 点（北京时间，UTC+8）= UTC 19:00
   workflow_dispatch:
     inputs:
       force:
@@ -400,6 +400,36 @@ jobs:
                       return candidate, info
               die(f"找不到源仓库 {repo_id}，或 source_token 没有读权限")
 
+          def refs_map(repo_type, repo_id, token):
+              """返回 {refs/heads/xxx 或 refs/tags/xxx: commit}；读不到返回 None。"""
+              status, data = api("GET", f"/api/{API_PREFIX[repo_type]}/{repo_id}/refs", token)
+              if status != 200:
+                  return None
+              result = {}
+              for kind, prefix in (("branches", "refs/heads/"), ("tags", "refs/tags/")):
+                  for item in data.get(kind) or []:
+                      if not isinstance(item, dict):
+                          continue
+                      name = item.get("name")
+                      commit = item.get("targetCommit") or item.get("commit")
+                      if not name or not commit:
+                          continue
+                      result[prefix + name] = commit
+              return result
+
+          def describe_diff(src_refs, dst_refs):
+              added = sorted(set(src_refs) - set(dst_refs))
+              missing = sorted(set(dst_refs) - set(src_refs))
+              changed = sorted(r for r in set(src_refs) & set(dst_refs) if src_refs[r] != dst_refs[r])
+              parts = []
+              if added:
+                  parts.append(f"目标缺少 {len(added)} 个（{', '.join(added[:3])}）")
+              if missing:
+                  parts.append(f"目标多出 {len(missing)} 个（{', '.join(missing[:3])}）")
+              if changed:
+                  parts.append(f"提交不同 {len(changed)} 个（{', '.join(changed[:3])}）")
+              return "；".join(parts)
+
           def namespace_payload(repo_type, target, token, private, space_sdk):
               owner, name = target.split("/", 1)
               status, me = api("GET", "/api/whoami-v2", token)
@@ -518,6 +548,19 @@ jobs:
 
               created = ensure_target(repo_type, DST, DST_TOKEN, upstream, private)
               allow_force = FORCE or created
+
+              # 已经存在就先比对 refs（分支 + tag 的最新提交），完全一致直接跳过，不 clone
+              if not created:
+                  src_refs = refs_map(repo_type, SRC, SRC_TOKEN)
+                  dst_refs = refs_map(repo_type, DST, DST_TOKEN)
+                  if src_refs is not None and dst_refs is not None:
+                      if src_refs == dst_refs:
+                          print("源和目标的分支/tag 提交完全一致，跳过同步", flush=True)
+                          report(True, "已是最新，跳过", repo_type, "skip")
+                          sys.exit(0)
+                      print("检测到差异: " + describe_diff(src_refs, dst_refs), flush=True)
+                  else:
+                      print("无法读取 refs，改为直接同步", flush=True)
 
               if DRY_RUN:
                   report(True, "dry-run：未推送", repo_type, "git")
