@@ -307,6 +307,13 @@ jobs:
               "yes",
               "on",
           )
+          if DRY_RUN:
+              # 让 dry-run 在 Actions 运行列表顶部就显示警告，避免被误认为已经同步
+              print(
+                  "::warning::DRY RUN 模式：本次只检查差异，"
+                  "不会创建目标仓库，也不会写入任何文件",
+                  flush=True,
+              )
           CHUNK = 100
           BATCH_FILES = 200
 
